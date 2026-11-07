@@ -83,6 +83,7 @@ async function countOtherActiveAdmins(userId: number): Promise<number> {
 const listQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().max(100).optional(),
   status: z.enum(['active', 'inactive']).optional(),
+  roleId: z.coerce.number().int().positive().optional(),
 });
 
 const createUserSchema = z.object({
@@ -120,6 +121,10 @@ usersRouter.get(
     if (filters.status) {
       where.push('status = ?');
       params.push(filters.status);
+    }
+    if (filters.roleId) {
+      where.push('id IN (SELECT user_id FROM user_roles WHERE role_id = ?)');
+      params.push(filters.roleId);
     }
     if (filters.q) {
       const like = likeContains(filters.q);
@@ -420,6 +425,43 @@ rolesRouter.patch(
 
     const roles = await loadRoles();
     res.json({ data: roles.find((item) => item.id === roleId) });
+  }),
+);
+
+const SEEDED_ROLE_NAMES = new Set([
+  'admin',
+  'loan_officer',
+  'credit_analyst',
+  'approver',
+  'finance_officer',
+  'cashier',
+  'viewer',
+]);
+
+rolesRouter.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const roleId = parseId(req.params.id);
+    const existing = await query<RoleRow>('SELECT id, name FROM roles WHERE id = ?', [roleId]);
+    const role = existing[0];
+    if (!role) {
+      throw new AppError(404, 'Role not found');
+    }
+    if (SEEDED_ROLE_NAMES.has(role.name)) {
+      throw new AppError(409, 'A default system role cannot be deleted');
+    }
+    const assigned = await query<RowDataPacket & { total: number }>(
+      'SELECT COUNT(*) AS total FROM user_roles WHERE role_id = ?',
+      [roleId],
+    );
+    if (Number(assigned[0]?.total ?? 0) > 0) {
+      throw new AppError(409, 'This role is still assigned to a user');
+    }
+    await withTransaction(async (conn) => {
+      await execute('DELETE FROM role_permissions WHERE role_id = ?', [roleId], conn);
+      await execute('DELETE FROM roles WHERE id = ?', [roleId], conn);
+    });
+    res.status(204).end();
   }),
 );
 
