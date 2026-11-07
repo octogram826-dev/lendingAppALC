@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { Alert, Card, Loading, PageHeader } from '../components/ui';
+import { Alert, Loading } from '../components/ui';
 import { money, setCurrency } from '../lib/format';
 import { useResource } from '../lib/resource';
 import type { Dashboard, One } from '../lib/types';
@@ -24,20 +24,26 @@ export function DashboardPage() {
 
   if (!can('dashboard.read')) {
     return (
-      <>
-        <PageHeader title={`Hello, ${user?.firstName ?? ''}`} lede="Open a section from the menu." />
-      </>
+      <div className="users-page">
+        <header className="users-head">
+          <div>
+            <h1>Hello, {user?.firstName ?? ''}</h1>
+            <p>Open a section from the menu.</p>
+          </div>
+        </header>
+      </div>
     );
   }
 
   const dash = data?.data;
   return (
-    <>
-      <PageHeader
-        eyebrow={dash ? `${dash.companyName} · ${dash.currency}` : 'ALC'}
-        title={`Hello, ${user?.firstName ?? ''}`}
-        lede="Portfolio, applications, collections, and overdue accounts."
-      />
+    <div className="users-page">
+      <header className="users-head">
+        <div>
+          <h1>Hello, {user?.firstName ?? ''}</h1>
+          <p>Portfolio, applications, collections, and overdue accounts.</p>
+        </div>
+      </header>
       {error ? <Alert>{error}</Alert> : null}
       {loading && !dash ? <Loading /> : null}
       {dash ? (
@@ -93,7 +99,14 @@ export function DashboardPage() {
               <em>{money(dash.collections.collectedOnDuesThisMonth)} collected on those dues</em>
             </div>
           </div>
-          <Card title="Applications" action={<Link to="/applications">All applications</Link>}>
+          <section className="user-card">
+            <h2>
+              <i />
+              <span>
+                Applications
+                <small><Link to="/applications">All applications</Link></small>
+              </span>
+            </h2>
             <div className="status-row">
               {APPLICATION_STATUSES.map((status) => (
                 <Link key={status} to={`/applications?status=${status}`}>
@@ -101,9 +114,9 @@ export function DashboardPage() {
                 </Link>
               ))}
             </div>
-          </Card>
+          </section>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

@@ -1,106 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { Alert, Badge, Card, Empty, Facts, Field, Filters, Loading, PageHeader, Pager } from '../components/ui';
+import { Alert, Empty, Loading } from '../components/ui';
 import { api, errorText } from '../lib/api';
-import { blankToNull, formatDate, formatWhen, money, qs } from '../lib/format';
+import { blankToNull, formatDate, label, money, qs } from '../lib/format';
 import { useResource } from '../lib/resource';
-import type { Borrower, One, Page } from '../lib/types';
+import type { Borrower, IdentityDocument, One, Page } from '../lib/types';
 
+const PAGE_SIZE = 10;
 const GENDERS = ['unspecified', 'female', 'male', 'other'];
 const CIVIL = ['unspecified', 'single', 'married', 'widowed', 'separated'];
-const EMPLOYMENT = ['', 'employed', 'self_employed', 'business_owner', 'retired', 'unemployed', 'other'];
+const EMPLOYMENT = ['employed', 'self_employed', 'business_owner', 'retired', 'unemployed', 'other'];
 const DOCUMENTS = ['national_id', 'passport', 'drivers_license', 'tax_id', 'social_security', 'other'];
-
-export function BorrowersPage() {
-  const { can } = useAuth();
-  const [params, setParams] = useSearchParams();
-  const page = Number(params.get('page') || 1);
-  const q = params.get('q') ?? '';
-  const verification = params.get('verification') ?? '';
-  const [draft, setDraft] = useState(q);
-  const list = useResource<Page<Borrower>>(`/api/borrowers${qs({ page, pageSize: 20, q, verificationStatus: verification })}`);
-
-  function search(event: FormEvent) {
-    event.preventDefault();
-    const next = new URLSearchParams(params);
-    if (draft.trim()) next.set('q', draft.trim());
-    else next.delete('q');
-    next.delete('page');
-    setParams(next);
-  }
-
-  function setVerification(value: string) {
-    const next = new URLSearchParams(params);
-    if (value) next.set('verification', value);
-    else next.delete('verification');
-    next.delete('page');
-    setParams(next);
-  }
-
-  return (
-    <>
-      <PageHeader
-        eyebrow="Lending"
-        title="Borrowers"
-        lede="Profiles, contact details, and identity records."
-        actions={can('borrowers.write') ? <Link className="btn btn-primary" to="/borrowers/new">New borrower</Link> : null}
-      />
-      <Card>
-        <Filters query={draft} onQuery={setDraft} onSearch={search}>
-          <select aria-label="Verification" value={verification} onChange={(event) => setVerification(event.target.value)}>
-            <option value="">All verification</option>
-            <option value="pending">Pending</option>
-            <option value="verified">Verified</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </Filters>
-        {list.error ? <Alert>{list.error}</Alert> : null}
-        {list.loading && !list.data ? <Loading /> : null}
-        {list.data && list.data.data.length === 0 ? <Empty title="No borrowers match" body="Try another name, number, or verification status." /> : null}
-        {list.data && list.data.data.length > 0 ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Borrower</th>
-                  <th>Contact</th>
-                  <th>City</th>
-                  <th>Income</th>
-                  <th>Verification</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.data.map((borrower) => (
-                  <tr key={borrower.id}>
-                    <td>
-                      <Link to={`/borrowers/${borrower.id}`}>{borrower.fullName}</Link>
-                      <div className="hint">{borrower.borrowerNumber}</div>
-                    </td>
-                    <td>
-                      {borrower.mobile || '—'}
-                      <div className="hint">{borrower.email || 'No email'}</div>
-                    </td>
-                    <td>{borrower.city || '—'}</td>
-                    <td className="num">{money(borrower.monthlyIncome)}</td>
-                    <td><Badge value={borrower.verificationStatus} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-        {list.data ? (
-          <Pager page={list.data.meta.page} pageSize={list.data.meta.pageSize} total={list.data.meta.total} onPage={(nextPage) => {
-            const next = new URLSearchParams(params);
-            next.set('page', String(nextPage));
-            setParams(next);
-          }} />
-        ) : null}
-      </Card>
-    </>
-  );
-}
+const STATUSES = ['pending', 'verified', 'rejected'] as const;
 
 type BorrowerDraft = {
   firstName: string;
@@ -138,6 +50,16 @@ const EMPTY_BORROWER: BorrowerDraft = {
   monthlyIncome: '',
 };
 
+function initials(firstName: string, lastName: string) {
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+}
+
+function statusClass(status: string) {
+  if (status === 'verified') return 'users-pill is-active';
+  if (status === 'rejected') return 'users-pill is-off';
+  return 'users-pill is-pending';
+}
+
 function payload(draft: BorrowerDraft) {
   return {
     firstName: draft.firstName.trim(),
@@ -156,6 +78,268 @@ function payload(draft: BorrowerDraft) {
     employerName: blankToNull(draft.employerName),
     monthlyIncome: draft.monthlyIncome.trim() ? Number(draft.monthlyIncome) : null,
   };
+}
+
+export function BorrowersPage() {
+  const { can } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const page = Number(params.get('page') || 1);
+  const q = params.get('q') ?? '';
+  const verification = params.get('verification') ?? '';
+  const [draft, setDraft] = useState(q);
+  const [rowError, setRowError] = useState<string | null>(null);
+  const [openStatus, setOpenStatus] = useState<number | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const list = useResource<Page<Borrower>>(
+    `/api/borrowers${qs({ page, pageSize: PAGE_SIZE, q, verificationStatus: verification })}`,
+  );
+
+  useEffect(() => {
+    setDraft(q);
+  }, [q]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (draft.trim() === q) return;
+      const next = new URLSearchParams(params);
+      if (draft.trim()) next.set('q', draft.trim());
+      else next.delete('q');
+      next.delete('page');
+      setParams(next);
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [draft, params, q, setParams]);
+
+  function setVerification(value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set('verification', value);
+    else next.delete('verification');
+    next.delete('page');
+    setParams(next);
+  }
+
+  function setPage(nextPage: number) {
+    const next = new URLSearchParams(params);
+    next.set('page', String(nextPage));
+    setParams(next);
+  }
+
+  async function changeStatus(borrower: Borrower, status: (typeof STATUSES)[number]) {
+    setOpenStatus(null);
+    if (borrower.verificationStatus === status) return;
+    setRowError(null);
+    try {
+      await api(`/api/borrowers/${borrower.id}/verification`, { method: 'POST', body: { status } });
+      list.reload();
+    } catch (err) {
+      setRowError(errorText(err));
+    }
+  }
+
+  async function exportCsv() {
+    setExporting(true);
+    setRowError(null);
+    try {
+      const rows: Borrower[] = [];
+      let nextPage = 1;
+      let total = 0;
+      do {
+        const result = await api<Page<Borrower>>(
+          `/api/borrowers${qs({ page: nextPage, pageSize: 100, q, verificationStatus: verification })}`,
+        );
+        rows.push(...result.data);
+        total = result.meta.total;
+        nextPage += 1;
+      } while (rows.length < total && nextPage <= 20);
+      const lines = [
+        ['Number', 'Name', 'Mobile', 'Email', 'City', 'Status'],
+        ...rows.map((borrower) => [
+          borrower.borrowerNumber,
+          borrower.fullName,
+          borrower.mobile ?? '',
+          borrower.email ?? '',
+          borrower.city ?? '',
+          label(borrower.verificationStatus),
+        ]),
+      ];
+      const csv = lines.map((line) => line.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(',')).join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'borrowers.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setRowError(errorText(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const total = list.data?.meta.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const start = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, total);
+
+  return (
+    <div className="users-page">
+      <header className="users-head">
+        <div>
+          <h1>Borrowers</h1>
+          <p>Manage borrower profiles, identity records, and verification status.</p>
+        </div>
+        <div className="users-head-actions">
+          <button type="button" className="users-outline" onClick={exportCsv} disabled={exporting}>
+            <img src="/shell/export.svg" alt="" width="20" height="20" />
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+          {can('borrowers.write') ? (
+            <Link className="users-primary" to="/borrowers/new">
+              <img src="/shell/plus.svg" alt="" width="20" height="20" />
+              Add Borrower
+            </Link>
+          ) : null}
+        </div>
+      </header>
+      <section className="users-card">
+        <div className="users-toolbar">
+          <label className="users-search">
+            <img src="/shell/search.svg" alt="" width="20" height="20" />
+            <input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Search anything..."
+              aria-label="Search borrowers"
+            />
+          </label>
+          <div className="users-filters">
+            <label className="users-filter">
+              <span>Status:</span>
+              <select aria-label="Status" value={verification} onChange={(event) => setVerification(event.target.value)}>
+                <option value="">All Record</option>
+                <option value="pending">Pending</option>
+                <option value="verified">Verified</option>
+                <option value="rejected">Rejected</option>
+              </select>
+              <img src="/shell/chevron-down.svg" alt="" width="20" height="20" />
+            </label>
+          </div>
+        </div>
+        {list.error ? <Alert>{list.error}</Alert> : null}
+        {rowError ? <Alert>{rowError}</Alert> : null}
+        {list.loading && !list.data ? <Loading /> : null}
+        {list.data && list.data.data.length === 0 ? <Empty title="No borrowers match" /> : null}
+        {list.data && list.data.data.length > 0 ? (
+          <div className="users-table-wrap">
+            <table className="users-table">
+              <thead>
+                <tr>
+                  <th>Borrower</th>
+                  <th>Contact</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.data.data.map((borrower) => (
+                  <tr key={borrower.id}>
+                    <td>
+                      <div className="users-person">
+                        <span className="avatar">{initials(borrower.firstName, borrower.lastName)}</span>
+                        <span>
+                          <strong>
+                            <Link to={`/borrowers/${borrower.id}`}>{borrower.fullName}</Link>
+                          </strong>
+                          <small>{borrower.borrowerNumber}</small>
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="users-person">
+                        <span>
+                          <strong>{borrower.mobile || '—'}</strong>
+                          <small>{borrower.email || 'No email'}</small>
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="users-status">
+                        <button
+                          type="button"
+                          className={statusClass(borrower.verificationStatus)}
+                          disabled={!can('borrowers.verify')}
+                          onClick={() => setOpenStatus((current) => (current === borrower.id ? null : borrower.id))}
+                        >
+                          {borrower.verificationStatus.toUpperCase()}
+                          {can('borrowers.verify') ? <img src="/shell/chevron-status.svg" alt="" width="15" height="15" /> : null}
+                        </button>
+                        {openStatus === borrower.id ? (
+                          <div className="users-status-menu">
+                            {STATUSES.map((status) => (
+                              <button key={status} type="button" onClick={() => void changeStatus(borrower, status)}>
+                                {label(status)}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td>
+                      {can('borrowers.write') ? (
+                        <Link className="users-edit" to={`/borrowers/${borrower.id}/edit`} aria-label={`Edit ${borrower.fullName}`}>
+                          <img src="/shell/edit.svg" alt="" width="20" height="20" />
+                        </Link>
+                      ) : (
+                        <Link className="users-edit" to={`/borrowers/${borrower.id}`} aria-label={`Open ${borrower.fullName}`}>
+                          <img src="/shell/edit.svg" alt="" width="20" height="20" />
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        {list.data ? (
+          <div className="users-pager">
+            <p>
+              Showing <strong>{start} to {end}</strong> of <strong>{total} entries</strong>
+            </p>
+            <div>
+              <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                <img src="/shell/chevron-left.svg" alt="" width="16" height="16" />
+              </button>
+              {Array.from({ length: pageCount }, (_, index) => index + 1)
+                .filter((number) => number === 1 || number === pageCount || Math.abs(number - page) <= 1)
+                .map((number, index, numbers) => {
+                  const previous = numbers[index - 1];
+                  return (
+                    <span key={number}>
+                      {previous && number - previous > 1 ? <span className="users-ellipsis">…</span> : null}
+                      <button type="button" className={number === page ? 'is-current' : ''} onClick={() => setPage(number)}>
+                        {number}
+                      </button>
+                    </span>
+                  );
+                })}
+              <label className="users-page-pick">
+                Page:
+                <select aria-label="Page" value={page} onChange={(event) => setPage(Number(event.target.value))}>
+                  {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => (
+                    <option key={number} value={number}>
+                      {number}
+                    </option>
+                  ))}
+                </select>
+                <img src="/shell/chevron-page.svg" alt="" width="14" height="14" />
+              </label>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    </div>
+  );
 }
 
 export function BorrowerFormPage() {
@@ -199,12 +383,11 @@ export function BorrowerFormPage() {
     setBusy(true);
     try {
       if (creating) {
-        const created = await api<One<Borrower>>('/api/borrowers', { method: 'POST', body: payload(draft) });
-        navigate(`/borrowers/${created.data.id}`);
+        await api<One<Borrower>>('/api/borrowers', { method: 'POST', body: payload(draft) });
       } else {
         await api(`/api/borrowers/${id}`, { method: 'PATCH', body: payload(draft) });
-        navigate(`/borrowers/${id}`);
       }
+      navigate('/borrowers');
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -212,51 +395,122 @@ export function BorrowerFormPage() {
     }
   }
 
+  if (!creating && existing.loading && !existing.data) return <Loading />;
+  if (!creating && existing.error) return <Alert>{existing.error}</Alert>;
+
   return (
-    <>
-      <PageHeader eyebrow="Borrowers" title={creating ? 'New borrower' : 'Edit borrower'} lede="Verification is recorded on the borrower page, not in this form." />
-      {existing.error ? <Alert>{existing.error}</Alert> : null}
-      {existing.loading && !creating ? <Loading /> : null}
-      {creating || existing.data ? (
-        <Card>
-          <form className="form-grid" onSubmit={onSubmit}>
-            <div className="span-2"><Alert>{error}</Alert></div>
-            <Field label="First name"><input value={draft.firstName} onChange={(event) => set('firstName', event.target.value)} required /></Field>
-            <Field label="Middle name"><input value={draft.middleName} onChange={(event) => set('middleName', event.target.value)} /></Field>
-            <Field label="Last name"><input value={draft.lastName} onChange={(event) => set('lastName', event.target.value)} required /></Field>
-            <Field label="Date of birth"><input type="date" value={draft.dateOfBirth} onChange={(event) => set('dateOfBirth', event.target.value)} /></Field>
-            <Field label="Gender">
-              <select value={draft.gender} onChange={(event) => set('gender', event.target.value)}>
-                {GENDERS.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </Field>
-            <Field label="Civil status">
-              <select value={draft.civilStatus} onChange={(event) => set('civilStatus', event.target.value)}>
-                {CIVIL.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
-              </select>
-            </Field>
-            <Field label="Email"><input type="email" value={draft.email} onChange={(event) => set('email', event.target.value)} /></Field>
-            <Field label="Mobile"><input value={draft.mobile} onChange={(event) => set('mobile', event.target.value)} /></Field>
-            <Field className="span-2" label="Address"><input value={draft.addressLine} onChange={(event) => set('addressLine', event.target.value)} /></Field>
-            <Field label="City"><input value={draft.city} onChange={(event) => set('city', event.target.value)} /></Field>
-            <Field label="Province"><input value={draft.province} onChange={(event) => set('province', event.target.value)} /></Field>
-            <Field label="Postal code"><input value={draft.postalCode} onChange={(event) => set('postalCode', event.target.value)} /></Field>
-            <Field label="Employment">
-              <select value={draft.employmentStatus} onChange={(event) => set('employmentStatus', event.target.value)}>
-                <option value="">Not recorded</option>
-                {EMPLOYMENT.filter(Boolean).map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
-              </select>
-            </Field>
-            <Field label="Employer"><input value={draft.employerName} onChange={(event) => set('employerName', event.target.value)} /></Field>
-            <Field label="Stated monthly income"><input inputMode="decimal" value={draft.monthlyIncome} onChange={(event) => set('monthlyIncome', event.target.value)} /></Field>
-            <div className="span-2 actions">
-              <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : creating ? 'Create borrower' : 'Save borrower'}</button>
-              <Link className="btn" to={id ? `/borrowers/${id}` : '/borrowers'}>Cancel</Link>
-            </div>
-          </form>
-        </Card>
-      ) : null}
-    </>
+    <form className="users-page user-form borrower-form" onSubmit={onSubmit}>
+      <h1>{creating ? 'Add Borrower' : 'Update Borrower'}</h1>
+      {error ? <Alert>{error}</Alert> : null}
+      <section className="user-card">
+        <h2>
+          <i />
+          Personal Information
+        </h2>
+        <div className="user-grid">
+          <label>
+            <span>First Name <b>*</b></span>
+            <input value={draft.firstName} placeholder="e.g., Juan" onChange={(event) => set('firstName', event.target.value)} required />
+          </label>
+          <label>
+            <span>Middle Name</span>
+            <input value={draft.middleName} placeholder="e.g., Santos" onChange={(event) => set('middleName', event.target.value)} />
+          </label>
+          <label>
+            <span>Last Name <b>*</b></span>
+            <input value={draft.lastName} placeholder="e.g., Dela Cruz" onChange={(event) => set('lastName', event.target.value)} required />
+          </label>
+          <label>
+            <span>Date of Birth</span>
+            <input type="date" value={draft.dateOfBirth} onChange={(event) => set('dateOfBirth', event.target.value)} />
+          </label>
+          <label>
+            <span>Gender</span>
+            <select value={draft.gender} onChange={(event) => set('gender', event.target.value)}>
+              {GENDERS.map((item) => (
+                <option key={item} value={item}>{label(item)}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Civil Status</span>
+            <select value={draft.civilStatus} onChange={(event) => set('civilStatus', event.target.value)}>
+              {CIVIL.map((item) => (
+                <option key={item} value={item}>{label(item)}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+      <section className="user-card">
+        <h2>
+          <i />
+          Contact Details
+        </h2>
+        <div className="user-grid">
+          <label>
+            <span>Email</span>
+            <span className="user-control">
+              <img src="/shell/mail.svg" alt="" width="20" height="20" />
+              <input type="email" value={draft.email} placeholder="you@example.com" onChange={(event) => set('email', event.target.value)} />
+            </span>
+          </label>
+          <label>
+            <span>Mobile</span>
+            <input value={draft.mobile} placeholder="09xxxxxxxxx" onChange={(event) => set('mobile', event.target.value)} />
+          </label>
+          <label>
+            <span>Address</span>
+            <input value={draft.addressLine} placeholder="Street, barangay" onChange={(event) => set('addressLine', event.target.value)} />
+          </label>
+          <label>
+            <span>City</span>
+            <input value={draft.city} placeholder="e.g., Quezon City" onChange={(event) => set('city', event.target.value)} />
+          </label>
+          <label>
+            <span>Province</span>
+            <input value={draft.province} placeholder="e.g., Metro Manila" onChange={(event) => set('province', event.target.value)} />
+          </label>
+          <label>
+            <span>Postal Code</span>
+            <input value={draft.postalCode} placeholder="e.g., 1100" onChange={(event) => set('postalCode', event.target.value)} />
+          </label>
+        </div>
+      </section>
+      <section className="user-card">
+        <h2>
+          <i />
+          Employment
+        </h2>
+        <div className="user-grid">
+          <label>
+            <span>Employment Status</span>
+            <select value={draft.employmentStatus} onChange={(event) => set('employmentStatus', event.target.value)}>
+              <option value="">Not recorded</option>
+              {EMPLOYMENT.map((item) => (
+                <option key={item} value={item}>{label(item)}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Employer</span>
+            <input value={draft.employerName} placeholder="Company or business name" onChange={(event) => set('employerName', event.target.value)} />
+          </label>
+          <label>
+            <span>Monthly Income</span>
+            <input inputMode="decimal" value={draft.monthlyIncome} placeholder="0.00" onChange={(event) => set('monthlyIncome', event.target.value)} />
+          </label>
+        </div>
+      </section>
+      <div className="user-actions">
+        <button type="button" className="users-outline" onClick={() => navigate('/borrowers')}>
+          {creating ? 'Cancel' : 'Discard'}
+        </button>
+        <button className="users-primary" disabled={busy}>
+          {busy ? 'Saving…' : creating ? 'Submit' : 'Save'}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -298,90 +552,118 @@ export function BorrowerRecordPage() {
   if (!borrower && record.loading) return <Loading />;
   if (!borrower) return <Alert>{record.error ?? 'Borrower not found.'}</Alert>;
 
+  const address = [borrower.addressLine, borrower.city, borrower.province, borrower.postalCode].filter(Boolean).join(', ');
+
   return (
-    <>
-      <PageHeader
-        eyebrow={borrower.borrowerNumber}
-        title={borrower.fullName}
-        lede={<Badge value={borrower.verificationStatus} />}
-        actions={
-          <>
-            {can('borrowers.write') ? <Link className="btn" to={`/borrowers/${borrower.id}/edit`}>Edit profile</Link> : null}
-            {can('applications.write') ? <Link className="btn btn-primary" to={`/applications/new?borrowerId=${borrower.id}`}>New application</Link> : null}
-          </>
-        }
-      />
-      <Alert>{error}</Alert>
-      <Alert kind="ok">{notice}</Alert>
-      <div className="grid-2">
-        <Card title="Profile">
-          <Facts items={[
-            { label: 'Date of birth', value: formatDate(borrower.dateOfBirth) },
-            { label: 'Gender', value: borrower.gender },
-            { label: 'Civil status', value: borrower.civilStatus.replaceAll('_', ' ') },
-            { label: 'Mobile', value: borrower.mobile || '—' },
-            { label: 'Email', value: borrower.email || '—' },
-            { label: 'Address', value: [borrower.addressLine, borrower.city, borrower.province, borrower.postalCode].filter(Boolean).join(', ') || '—' },
-            { label: 'Employment', value: borrower.employmentStatus?.replaceAll('_', ' ') || '—' },
-            { label: 'Employer', value: borrower.employerName || '—' },
-            { label: 'Stated monthly income', value: money(borrower.monthlyIncome) },
-            { label: 'Recorded', value: formatWhen(borrower.createdAt) },
-          ]} />
-        </Card>
-        <Card title="Verification">
-          <p className="hint">An application can be submitted only after the borrower is verified. Individual document checks are recorded here and are not a submit gate.</p>
-          {can('borrowers.verify') ? (
-            <form className="stack" style={{ marginTop: 12 }} onSubmit={saveVerification}>
-              <Field label="Status">
-                <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                  <option value="pending">Pending</option>
-                  <option value="verified">Verified</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </Field>
-              <Field label="Notes"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
-              <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save verification'}</button>
-            </form>
-          ) : (
-            <div style={{ marginTop: 12 }}>
-              <Badge value={borrower.verificationStatus} />
-              <p style={{ marginTop: 8 }}>{borrower.verificationNotes || 'No notes.'}</p>
-              {borrower.verifiedAt ? <p className="hint">Updated {formatWhen(borrower.verifiedAt)}</p> : null}
-            </div>
-          )}
-        </Card>
-      </div>
-      <Card
-        title="Identity documents"
-        action={can('borrowers.write') ? <button type="button" className="btn" onClick={() => setShowDoc((value) => !value)}>{showDoc ? 'Close' : 'Record document'}</button> : null}
-      >
+    <div className="users-page user-form borrower-form">
+      <header className="users-head">
+        <div>
+          <h1>{borrower.fullName}</h1>
+          <p>{borrower.borrowerNumber}</p>
+        </div>
+        <div className="users-head-actions">
+          {can('borrowers.write') ? (
+            <Link className="users-outline" to={`/borrowers/${borrower.id}/edit`}>
+              Update Borrower
+            </Link>
+          ) : null}
+          {can('applications.write') ? (
+            <Link className="users-primary" to={`/applications/new?borrowerId=${borrower.id}`}>
+              <img src="/shell/plus.svg" alt="" width="20" height="20" />
+              New Application
+            </Link>
+          ) : null}
+        </div>
+      </header>
+      {error ? <Alert>{error}</Alert> : null}
+      {notice ? <Alert kind="ok">{notice}</Alert> : null}
+      <section className="user-card">
+        <h2>
+          <i />
+          Profile
+        </h2>
+        <dl className="borrower-facts">
+          <div><dt>Date of Birth</dt><dd>{formatDate(borrower.dateOfBirth)}</dd></div>
+          <div><dt>Gender</dt><dd>{label(borrower.gender)}</dd></div>
+          <div><dt>Civil Status</dt><dd>{label(borrower.civilStatus)}</dd></div>
+          <div><dt>Mobile</dt><dd>{borrower.mobile || '—'}</dd></div>
+          <div><dt>Email</dt><dd>{borrower.email || '—'}</dd></div>
+          <div><dt>Address</dt><dd>{address || '—'}</dd></div>
+          <div><dt>Employment</dt><dd>{label(borrower.employmentStatus)}</dd></div>
+          <div><dt>Employer</dt><dd>{borrower.employerName || '—'}</dd></div>
+          <div><dt>Monthly Income</dt><dd>{money(borrower.monthlyIncome)}</dd></div>
+        </dl>
+      </section>
+      <section className="user-card">
+        <h2>
+          <i />
+          <span>
+            Verification
+            <small>An application can be submitted only after the borrower is verified.</small>
+          </span>
+        </h2>
+        {can('borrowers.verify') ? (
+          <form className="user-grid" onSubmit={saveVerification}>
+            <label>
+              <span>Status</span>
+              <select value={status} onChange={(event) => setStatus(event.target.value)}>
+                {STATUSES.map((item) => (
+                  <option key={item} value={item}>{label(item)}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Notes</span>
+              <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+            </label>
+            <label>
+              <span>&nbsp;</span>
+              <button className="users-primary" disabled={busy}>{busy ? 'Saving…' : 'Save verification'}</button>
+            </label>
+          </form>
+        ) : (
+          <p>{borrower.verificationNotes || label(borrower.verificationStatus)}</p>
+        )}
+      </section>
+      <section className="user-card">
+        <h2>
+          <i />
+          Identity Documents
+        </h2>
+        {can('borrowers.write') ? (
+          <p style={{ marginTop: -8 }}>
+            <button type="button" className="users-outline" onClick={() => setShowDoc((value) => !value)}>
+              {showDoc ? 'Close' : 'Record document'}
+            </button>
+          </p>
+        ) : null}
         {showDoc ? <DocumentForm borrowerId={borrower.id} onDone={() => { setShowDoc(false); record.reload(); }} /> : null}
-        {(borrower.documents ?? []).length === 0 ? <Empty title="No identity documents" body="Record a national ID, passport, or other document." /> : (
-          <div className="table-wrap">
-            <table>
+        {(borrower.documents ?? []).length === 0 ? <Empty title="No identity documents" /> : (
+          <div className="users-table-wrap">
+            <table className="users-table">
               <thead>
                 <tr>
                   <th>Type</th>
                   <th>Number</th>
                   <th>Issued</th>
                   <th>Expiry</th>
-                  <th>Reference</th>
                   <th>Status</th>
-                  <th></th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {(borrower.documents ?? []).map((document) => (
                   <tr key={document.id}>
-                    <td>{document.documentType.replaceAll('_', ' ')}</td>
+                    <td>{label(document.documentType)}</td>
                     <td>{document.documentNumber}</td>
                     <td>{formatDate(document.issuedDate)}</td>
                     <td>{formatDate(document.expiryDate)}</td>
-                    <td>{document.fileReference || '—'}</td>
-                    <td><Badge value={document.verificationStatus} /></td>
+                    <td><span className={statusClass(document.verificationStatus)}>{document.verificationStatus.toUpperCase()}</span></td>
                     <td>
                       {can('borrowers.write') || can('borrowers.verify') ? (
-                        <button type="button" className="btn" onClick={() => setEditingId(editingId === document.id ? null : document.id)}>Edit</button>
+                        <button type="button" className="users-edit" onClick={() => setEditingId(editingId === document.id ? null : document.id)} aria-label="Edit document">
+                          <img src="/shell/edit.svg" alt="" width="20" height="20" />
+                        </button>
                       ) : null}
                     </td>
                   </tr>
@@ -399,8 +681,8 @@ export function BorrowerRecordPage() {
             onDone={() => { setEditingId(null); record.reload(); }}
           />
         ) : null}
-      </Card>
-    </>
+      </section>
+    </div>
   );
 }
 
@@ -439,21 +721,40 @@ function DocumentForm({ borrowerId, onDone }: { borrowerId: number; onDone: () =
   }
 
   return (
-    <form className="form-grid" style={{ marginBottom: 16 }} onSubmit={onSubmit}>
-      <div className="span-2"><Alert>{error}</Alert></div>
-      <Field label="Type">
+    <form className="user-grid" style={{ marginBottom: 16 }} onSubmit={onSubmit}>
+      {error ? <Alert>{error}</Alert> : null}
+      <label>
+        <span>Type</span>
         <select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
-          {DOCUMENTS.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
+          {DOCUMENTS.map((item) => (
+            <option key={item} value={item}>{label(item)}</option>
+          ))}
         </select>
-      </Field>
-      <Field label="Number"><input value={documentNumber} onChange={(event) => setDocumentNumber(event.target.value)} required /></Field>
-      <Field label="Issued"><input type="date" value={issuedDate} onChange={(event) => setIssuedDate(event.target.value)} /></Field>
-      <Field label="Expiry"><input type="date" value={expiryDate} onChange={(event) => setExpiryDate(event.target.value)} /></Field>
-      <Field className="span-2" label="File reference" hint="A path or reference. Files are not uploaded.">
+      </label>
+      <label>
+        <span>Number <b>*</b></span>
+        <input value={documentNumber} onChange={(event) => setDocumentNumber(event.target.value)} required />
+      </label>
+      <label>
+        <span>Issued</span>
+        <input type="date" value={issuedDate} onChange={(event) => setIssuedDate(event.target.value)} />
+      </label>
+      <label>
+        <span>Expiry</span>
+        <input type="date" value={expiryDate} onChange={(event) => setExpiryDate(event.target.value)} />
+      </label>
+      <label>
+        <span>File reference</span>
         <input value={fileReference} onChange={(event) => setFileReference(event.target.value)} />
-      </Field>
-      <Field className="span-2" label="Notes"><input value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
-      <div className="span-2"><button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Add document'}</button></div>
+      </label>
+      <label>
+        <span>Notes</span>
+        <input value={notes} onChange={(event) => setNotes(event.target.value)} />
+      </label>
+      <label>
+        <span>&nbsp;</span>
+        <button className="users-primary" disabled={busy}>{busy ? 'Saving…' : 'Add document'}</button>
+      </label>
     </form>
   );
 }
@@ -466,7 +767,7 @@ function DocumentEdit({
   onDone,
 }: {
   borrowerId: number;
-  document: NonNullable<Borrower['documents']>[number];
+  document: IdentityDocument;
   canWrite: boolean;
   canVerify: boolean;
   onDone: () => void;
@@ -500,22 +801,35 @@ function DocumentEdit({
   }
 
   return (
-    <form className="form-grid" style={{ marginTop: 14 }} onSubmit={onSubmit}>
-      <div className="span-2"><Alert>{error}</Alert></div>
-      <Field label="Number"><input value={documentNumber} onChange={(event) => setDocumentNumber(event.target.value)} disabled={!canWrite} required /></Field>
-      <Field label="File reference"><input value={fileReference} onChange={(event) => setFileReference(event.target.value)} disabled={!canWrite} /></Field>
-      <Field label="Notes"><input value={notes} onChange={(event) => setNotes(event.target.value)} disabled={!canWrite} /></Field>
-      <Field label="Document verification">
+    <form className="user-grid" style={{ marginTop: 16 }} onSubmit={onSubmit}>
+      {error ? <Alert>{error}</Alert> : null}
+      <label>
+        <span>Number</span>
+        <input value={documentNumber} onChange={(event) => setDocumentNumber(event.target.value)} disabled={!canWrite} required />
+      </label>
+      <label>
+        <span>File reference</span>
+        <input value={fileReference} onChange={(event) => setFileReference(event.target.value)} disabled={!canWrite} />
+      </label>
+      <label>
+        <span>Notes</span>
+        <input value={notes} onChange={(event) => setNotes(event.target.value)} disabled={!canWrite} />
+      </label>
+      <label>
+        <span>Document verification</span>
         <select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value)} disabled={!canVerify}>
-          <option value="pending">Pending</option>
-          <option value="verified">Verified</option>
-          <option value="rejected">Rejected</option>
+          {STATUSES.map((item) => (
+            <option key={item} value={item}>{label(item)}</option>
+          ))}
         </select>
-      </Field>
-      <div className="span-2 actions">
-        <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save document'}</button>
-        <button type="button" className="btn" onClick={onDone}>Close</button>
-      </div>
+      </label>
+      <label>
+        <span>&nbsp;</span>
+        <span style={{ display: 'flex', gap: 10 }}>
+          <button className="users-primary" disabled={busy}>{busy ? 'Saving…' : 'Save document'}</button>
+          <button type="button" className="users-outline" onClick={onDone}>Close</button>
+        </span>
+      </label>
     </form>
   );
 }
