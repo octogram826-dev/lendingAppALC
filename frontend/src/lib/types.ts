@@ -182,6 +182,9 @@ export type Agreement = {
   applicationNumber: string;
   borrowerId: number;
   borrowerNumber: string;
+  borrowerFirstName: string;
+  borrowerMiddleName: string | null;
+  borrowerLastName: string;
   borrowerName: string;
   productCode: string;
   principal: number;

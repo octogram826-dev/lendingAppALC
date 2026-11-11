@@ -117,6 +117,20 @@ function crumbs(pathname: string): Array<{ label: string; to?: string }> {
       { label: 'Application' },
     ];
   }
+  if (/^\/agreements\/\d+\/disburse/.test(pathname)) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Agreements', to: '/agreements' },
+      { label: 'Release Funds' },
+    ];
+  }
+  if (/^\/agreements\/\d+/.test(pathname)) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Agreements', to: '/agreements' },
+      { label: 'Agreement' },
+    ];
+  }
   const current = pathname.startsWith('/users/new')
     ? 'Add User'
     : pathname.startsWith('/users/')

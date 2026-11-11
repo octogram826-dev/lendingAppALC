@@ -37,6 +37,16 @@ function initials(firstName: string, lastName: string) {
   return `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase();
 }
 
+function peso(value: number) {
+  const whole = Math.abs(value - Math.round(value)) < 0.001;
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: whole ? 0 : 2,
+  }).format(value);
+}
+
 function quotePreview(principal: number, rate: number, term: number) {
   if (!(principal > 0) || !(rate >= 0) || !Number.isInteger(term) || term < 1) return null;
   const principalCents = Math.round(principal * 100);
@@ -190,10 +200,22 @@ export function ApplicationsPage() {
       </header>
       <div className="products-stack">
         <div className="product-metrics">
-          <article className="product-metric"><header>Total Applications</header><strong>{catalog.length}</strong></article>
-          <article className="product-metric"><header>Awaiting Evaluation</header><strong>{awaiting}</strong></article>
-          <article className="product-metric"><header>For Approval</header><strong>{forApproval}</strong></article>
-          <article className="product-metric"><header>Total Requested Amount</header><strong>{money(requested)}</strong></article>
+          <article className="product-metric">
+            <header>Total Applications<img src="/shell/metric-applications.svg" alt="" width={24} height={24} /></header>
+            <strong>{catalog.length}</strong>
+          </article>
+          <article className="product-metric">
+            <header>Awaiting Evaluation<img src="/shell/metric-evaluation.svg" alt="" width={24} height={24} /></header>
+            <strong>{awaiting}</strong>
+          </article>
+          <article className="product-metric">
+            <header>For Approval<img src="/shell/metric-approval.svg" alt="" width={24} height={24} /></header>
+            <strong>{forApproval}</strong>
+          </article>
+          <article className="product-metric">
+            <header>Total Amount<img src="/shell/metric-amount.svg" alt="" width={24} height={24} /></header>
+            <strong>{peso(requested)}</strong>
+          </article>
         </div>
         <section className="users-card">
           <div className="users-toolbar">

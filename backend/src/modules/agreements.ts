@@ -73,6 +73,9 @@ function mapAgreement(row: AgreementRow, documents?: DocumentRow[]) {
     applicationNumber: row.application_number,
     borrowerId: row.borrower_id,
     borrowerNumber: row.borrower_number,
+    borrowerFirstName: row.first_name,
+    borrowerMiddleName: row.middle_name,
+    borrowerLastName: row.last_name,
     borrowerName: fullName(row.first_name, row.middle_name, row.last_name),
     productId: row.product_id,
     productCode: row.product_code,
@@ -235,6 +238,8 @@ agreementsRouter.get(
       pageQuerySchema.extend({
         status: z.enum(['draft', 'executed', 'disbursed', 'cancelled']).optional(),
         q: z.string().trim().max(100).optional(),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       }),
       req.query,
     );
@@ -244,12 +249,20 @@ agreementsRouter.get(
       where.push('ag.status = ?');
       params.push(filters.status);
     }
+    if (filters.from) {
+      where.push('ag.first_due_date >= ?');
+      params.push(filters.from);
+    }
+    if (filters.to) {
+      where.push('ag.first_due_date <= ?');
+      params.push(filters.to);
+    }
     if (filters.q) {
       const like = likeContains(filters.q);
       where.push(
-        `(ag.agreement_number LIKE ? ${LIKE_ESCAPE} OR a.application_number LIKE ? ${LIKE_ESCAPE} OR b.borrower_number LIKE ? ${LIKE_ESCAPE} OR b.last_name LIKE ? ${LIKE_ESCAPE})`,
+        `(ag.agreement_number LIKE ? ${LIKE_ESCAPE} OR a.application_number LIKE ? ${LIKE_ESCAPE} OR b.borrower_number LIKE ? ${LIKE_ESCAPE} OR b.first_name LIKE ? ${LIKE_ESCAPE} OR b.last_name LIKE ? ${LIKE_ESCAPE})`,
       );
-      params.push(like, like, like, like);
+      params.push(like, like, like, like, like);
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
     const totalRows = await query<RowDataPacket & { count: number }>(

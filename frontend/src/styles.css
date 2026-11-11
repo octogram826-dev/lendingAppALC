@@ -540,10 +540,11 @@ tr:last-child .users-status-menu { top: auto; bottom: calc(100% + 4px); }
 .users-table .app-number:hover { text-decoration: none; }
 .app-person { display: flex; align-items: center; gap: 10px; }
 .app-stack { display: flex; flex-direction: column; min-width: 0; }
-.app-stack strong { display: block; color: #111827; font-size: 16px; font-weight: 500; line-height: 24px; }
+.app-stack strong { display: block; color: #111827; font-size: 16px; font-weight: 500; line-height: 24px; white-space: nowrap; }
 .app-stack strong a { color: inherit; font-size: 16px; font-weight: 500; line-height: 24px; text-decoration: none; }
 .app-stack small { display: block; color: #4b5563; font-size: 13px; font-weight: 400; line-height: 20px; white-space: nowrap; }
 .app-avatar {
+  flex: none;
   width: 36px;
   height: 36px;
   display: grid;
@@ -561,6 +562,30 @@ tr:last-child .users-status-menu { top: auto; bottom: calc(100% + 4px); }
 .app-pill.is-approved { background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; }
 .app-pill.is-rejected { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
 .app-pill.is-disbursed { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+.agr-pill.is-executed { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+.agr-pill.is-disbursed { background: #f5f3ff; border: 1px solid #ddd6fe; color: #6d28d9; }
+.agr-pill.is-cancelled { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+.agr-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 45px;
+  padding: 0 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: white;
+  color: #4b5563;
+  font-size: 14px;
+}
+.agr-range input {
+  width: 132px;
+  height: 24px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 14px;
+  line-height: 21px;
+}
 .app-split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.8fr); gap: 20px; align-items: start; }
 .app-req { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid #f3f4f6; }
 .app-req strong { display: block; font-size: 14px; font-weight: 600; line-height: 21px; }
@@ -746,6 +771,18 @@ tr:last-child .users-status-menu { top: auto; bottom: calc(100% + 4px); }
 }
 .user-form input::placeholder { color: #9ca3af; }
 .user-form input:disabled { background: white; color: #111827; }
+.user-form select, .user-form textarea {
+  width: 100%;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  background: white;
+  padding: 10px 12px;
+  font-family: Inter, sans-serif;
+  font-size: 16px;
+  color: #111827;
+}
+.user-form select { height: 45px; }
+.user-form textarea { min-height: 90px; resize: vertical; }
 .user-control {
   display: flex;
   align-items: center;
