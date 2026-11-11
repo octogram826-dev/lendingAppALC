@@ -75,6 +75,9 @@ function mapLoan(row: LoanRow) {
     agreementNumber: row.agreement_number,
     borrowerId: row.borrower_id,
     borrowerNumber: row.borrower_number,
+    borrowerFirstName: row.first_name,
+    borrowerMiddleName: row.middle_name,
+    borrowerLastName: row.last_name,
     borrowerName: fullName(row.first_name, row.middle_name, row.last_name),
     principal: Number(row.principal),
     totalInterest: Number(row.total_interest),
@@ -192,9 +195,9 @@ loansRouter.get(
     if (filters.q) {
       const like = likeContains(filters.q);
       where.push(
-        `(la.account_number LIKE ? ${LIKE_ESCAPE} OR ag.agreement_number LIKE ? ${LIKE_ESCAPE} OR b.borrower_number LIKE ? ${LIKE_ESCAPE} OR b.last_name LIKE ? ${LIKE_ESCAPE})`,
+        `(la.account_number LIKE ? ${LIKE_ESCAPE} OR ag.agreement_number LIKE ? ${LIKE_ESCAPE} OR b.borrower_number LIKE ? ${LIKE_ESCAPE} OR b.first_name LIKE ? ${LIKE_ESCAPE} OR b.last_name LIKE ? ${LIKE_ESCAPE})`,
       );
-      params.push(like, like, like, like);
+      params.push(like, like, like, like, like);
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
     const totalRows = await query<RowDataPacket & { count: number }>(

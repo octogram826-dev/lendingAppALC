@@ -233,6 +233,9 @@ export type Loan = {
   agreementNumber: string;
   borrowerId: number;
   borrowerNumber: string;
+  borrowerFirstName: string;
+  borrowerMiddleName: string | null;
+  borrowerLastName: string;
   borrowerName: string;
   principal: number;
   totalInterest: number;

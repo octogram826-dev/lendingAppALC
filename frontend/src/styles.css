@@ -595,6 +595,10 @@ tr:last-child .users-status-menu { top: auto; bottom: calc(100% + 4px); }
 .app-pill.is-approved { background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; }
 .app-pill.is-rejected { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
 .app-pill.is-disbursed { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+.app-pill.is-active, .app-pill.is-paid { background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; }
+.app-pill.is-overdue { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+.app-pill.is-closed, .app-pill.is-pending { background: #f3f4f6; color: #4b5563; }
+.app-pill.is-partial { background: #fff7ed; border: 1px solid #fed7aa; color: #c2410c; }
 .agr-pill.is-executed { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
 .agr-pill.is-disbursed { background: #f5f3ff; border: 1px solid #ddd6fe; color: #6d28d9; }
 .agr-pill.is-cancelled { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
