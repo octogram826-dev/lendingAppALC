@@ -35,7 +35,7 @@ const NAV: Array<{ id: string; label: string; items: NavItem[] }> = [
       { to: '/borrowers', label: 'Borrowers', icon: '/shell/borrowers.svg', allow: ['borrowers.read'] },
       { to: '/products', label: 'Loan Products', icon: '/shell/products.svg', allow: ['products.read'] },
       { to: '/applications', label: 'Applications', icon: '/shell/applications.svg', allow: ['applications.read'] },
-      { label: 'Credit Evaluations', icon: '/shell/credit.svg', allow: ['applications.read'] },
+      { to: '/credit-evaluations', label: 'Credit Evaluations', icon: '/shell/credit.svg', allow: ['applications.read'] },
       { label: 'Approval', icon: '/shell/approval.svg', allow: ['applications.read'] },
       { to: '/agreements', label: 'Agreements', icon: '/shell/agreements.svg', allow: ['agreements.write', 'disbursements.write', 'loans.read'] },
       { to: '/loans', label: 'Loan Account', icon: '/shell/loans.svg', allow: ['loans.read'] },
@@ -145,8 +145,10 @@ function crumbs(pathname: string): Array<{ label: string; to?: string }> {
               ? 'Borrowers'
               : pathname.startsWith('/products')
                 ? 'Loan Products'
-                : pathname.startsWith('/applications')
-                  ? 'Applications'
+                : pathname.startsWith('/credit-evaluations')
+                  ? 'Credit Evaluations'
+                  : pathname.startsWith('/applications')
+                    ? 'Applications'
                   : pathname.startsWith('/agreements')
                     ? 'Agreements'
                     : pathname.startsWith('/loans')

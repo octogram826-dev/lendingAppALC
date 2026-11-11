@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
 import { apiDateTime, nowSql } from '../domain/dates';
-import { centsToMoneyString, moneyToCents } from '../domain/money';
+import { centsToMoneyString, installmentRatio, moneyToCents } from '../domain/money';
 import { fullName } from '../domain/names';
 import { nextNumber } from '../domain/sequences';
 import { execute, query, withTransaction } from '../db';
@@ -20,6 +20,7 @@ import {
   REQUIREMENT_STATUSES,
 } from '../schemas';
 import { createAgreement, findActiveAgreementSummary } from './agreements';
+import { getMaxInstallmentRatio } from '../settingsStore';
 import { approvalSchema, decideApplication, evaluationSchema, evaluateApplication, loadApproval, loadEvaluation } from './credit';
 
 type ApplicationRow = RowDataPacket & {
@@ -262,6 +263,87 @@ applicationsRouter.post(
       return created.insertId;
     });
     res.status(201).json({ data: await applicationDetail(id) });
+  }),
+);
+
+applicationsRouter.get(
+  '/evaluations',
+  requirePermission('applications.read'),
+  asyncHandler(async (req, res) => {
+    const filters = validate(
+      pageQuerySchema.extend({
+        view: z.enum(['queue', 'history']).default('queue'),
+        policy: z.enum(['yes', 'no']).optional(),
+        q: z.string().trim().max(100).optional(),
+      }),
+      req.query,
+    );
+    const maxRatio = await getMaxInstallmentRatio();
+    const statuses = filters.view === 'queue' ? ['under_review'] : ['approved', 'rejected', 'disbursed'];
+    const where = [`a.status IN (${statuses.map(() => '?').join(', ')})`];
+    const params: unknown[] = [...statuses];
+    if (filters.policy === 'yes') {
+      where.push('e.verified_monthly_income > 0 AND ROUND(e.proposed_installment / e.verified_monthly_income, 4) <= ?');
+      params.push(maxRatio);
+    }
+    if (filters.policy === 'no') {
+      where.push('(e.verified_monthly_income <= 0 OR ROUND(e.proposed_installment / e.verified_monthly_income, 4) > ?)');
+      params.push(maxRatio);
+    }
+    if (filters.q) {
+      const like = likeContains(filters.q);
+      where.push(
+        `(a.application_number LIKE ? ${LIKE_ESCAPE} OR b.borrower_number LIKE ? ${LIKE_ESCAPE} OR b.first_name LIKE ? ${LIKE_ESCAPE} OR b.last_name LIKE ? ${LIKE_ESCAPE})`,
+      );
+      params.push(like, like, like, like);
+    }
+    const whereSql = `WHERE ${where.join(' AND ')}`;
+    const fromSql = `FROM loan_applications a
+       INNER JOIN borrowers b ON b.id = a.borrower_id
+       INNER JOIN credit_evaluations e ON e.application_id = a.id`;
+    const totalRows = await query<RowDataPacket & { count: number }>(
+      `SELECT COUNT(*) AS count ${fromSql} ${whereSql}`,
+      params,
+    );
+    const offset = (filters.page - 1) * filters.pageSize;
+    const rows = await query<
+      RowDataPacket & {
+        id: number;
+        application_number: string;
+        status: string;
+        borrower_id: number;
+        first_name: string;
+        middle_name: string | null;
+        last_name: string;
+        disposable_income: string;
+        proposed_installment: string;
+        verified_monthly_income: string;
+      }
+    >(
+      `SELECT a.id, a.application_number, a.status, b.id AS borrower_id, b.first_name, b.middle_name, b.last_name,
+              e.disposable_income, e.proposed_installment, e.verified_monthly_income
+       ${fromSql} ${whereSql}
+       ORDER BY a.id DESC LIMIT ? OFFSET ?`,
+      [...params, filters.pageSize, offset],
+    );
+    res.json({
+      data: rows.map((row) => {
+        const ratio = installmentRatio(moneyToCents(row.proposed_installment), moneyToCents(row.verified_monthly_income));
+        return {
+          applicationId: row.id,
+          applicationNumber: row.application_number,
+          borrowerId: row.borrower_id,
+          borrowerFirstName: row.first_name,
+          borrowerMiddleName: row.middle_name,
+          borrowerLastName: row.last_name,
+          disposableIncome: Number(row.disposable_income),
+          proposedInstallment: Number(row.proposed_installment),
+          withinPolicy: ratio !== null && ratio <= maxRatio,
+          status: row.status,
+        };
+      }),
+      meta: pageMeta(filters.page, filters.pageSize, Number(totalRows[0]?.count ?? 0)),
+    });
   }),
 );
 

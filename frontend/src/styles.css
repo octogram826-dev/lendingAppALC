@@ -457,6 +457,23 @@ tr:last-child .users-status-menu { top: auto; bottom: calc(100% + 4px); }
 .users-page .status-row a { font-family: Inter, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; }
 .products-stack { display: flex; flex-direction: column; gap: 15px; }
 .product-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; }
+.product-metrics.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.eval-tabs { display: flex; align-items: center; gap: 8px; }
+.eval-tabs button {
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 21px;
+}
+.eval-tabs button.is-current { background: white; border-color: #e5e7eb; color: #111827; }
+.eval-yes, .eval-no { font-size: 14px; font-weight: 600; line-height: 21px; }
+.eval-yes { color: #047857; }
+.eval-no { color: #dc2626; }
 .product-metric {
   display: flex;
   flex-direction: column;
@@ -1198,7 +1215,7 @@ input:disabled, select:disabled, textarea:disabled { background: #f4f7f8; color:
   .users-head, .users-toolbar, .users-pager { flex-direction: column; align-items: stretch; }
   .user-grid > label { width: 100%; }
   .role-perms, .borrower-facts { grid-template-columns: 1fr 1fr; }
-  .product-metrics { grid-template-columns: 1fr 1fr; }
+  .product-metrics, .product-metrics.is-three { grid-template-columns: 1fr 1fr; }
   .app-split { grid-template-columns: 1fr; }
 }
 @media (max-width: 860px) {
