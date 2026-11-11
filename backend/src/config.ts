@@ -8,32 +8,45 @@ function read(name: string, fallback: string): string {
   return value === undefined || value === '' ? fallback : value;
 }
 
-function readInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') {
-    return fallback;
+function readFirst(names: string[], fallback: string): string {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value !== undefined && value !== '') {
+      return value;
+    }
   }
-  const value = Number(raw);
-  if (!Number.isInteger(value)) {
-    throw new Error(`${name} must be an integer`);
-  }
-  return value;
+  return fallback;
 }
 
-const dbName = read('DB_NAME', 'lms');
+function readIntFirst(names: string[], fallback: number): number {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') {
+      continue;
+    }
+    const value = Number(raw);
+    if (!Number.isInteger(value)) {
+      throw new Error(`${name} must be an integer`);
+    }
+    return value;
+  }
+  return fallback;
+}
+
+const dbName = readFirst(['DB_NAME', 'MYSQLDATABASE'], 'lms');
 if (!/^[A-Za-z0-9_]+$/.test(dbName)) {
   throw new Error('DB_NAME may contain only letters, numbers, and underscores');
 }
 
 export const env = {
   nodeEnv: read('NODE_ENV', 'development'),
-  port: readInt('PORT', 3000),
+  port: readIntFirst(['PORT'], 3000),
   jwtSecret: process.env.JWT_SECRET ?? '',
   jwtExpiresIn: read('JWT_EXPIRES_IN', '8h'),
-  dbHost: read('DB_HOST', '127.0.0.1'),
-  dbPort: readInt('DB_PORT', 3306),
-  dbUser: read('DB_USER', 'root'),
-  dbPassword: process.env.DB_PASSWORD ?? '',
+  dbHost: readFirst(['DB_HOST', 'MYSQLHOST'], '127.0.0.1'),
+  dbPort: readIntFirst(['DB_PORT', 'MYSQLPORT'], 3306),
+  dbUser: readFirst(['DB_USER', 'MYSQLUSER'], 'root'),
+  dbPassword: process.env.DB_PASSWORD ?? process.env.MYSQLPASSWORD ?? '',
   dbName,
   corsOrigin: read('CORS_ORIGIN', '*'),
 };

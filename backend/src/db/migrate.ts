@@ -14,10 +14,14 @@ async function main(): Promise<void> {
   });
 
   try {
-    await connection.query(
-      `CREATE DATABASE IF NOT EXISTS \`${env.dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
-    );
-    await connection.query(`USE \`${env.dbName}\``);
+    try {
+      await connection.query(`USE \`${env.dbName}\``);
+    } catch {
+      await connection.query(
+        `CREATE DATABASE IF NOT EXISTS \`${env.dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+      );
+      await connection.query(`USE \`${env.dbName}\``);
+    }
     await connection.query(schema);
     console.log(`Migrated database ${env.dbName}`);
   } finally {

@@ -1,6 +1,8 @@
 import cors from 'cors';
 import express from 'express';
+import fs from 'fs';
 import helmet from 'helmet';
+import path from 'path';
 import type { RowDataPacket } from 'mysql2/promise';
 import { env } from './config';
 import { query } from './db';
@@ -18,7 +20,11 @@ import { permissionsRouter, rolesRouter, usersRouter } from './modules/users';
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
-  app.use(helmet());
+  app.use(helmet({
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false,
+  }));
   app.use(cors({ origin: env.corsOrigin === '*' ? true : env.corsOrigin }));
   app.use(express.json({ limit: '1mb' }));
   app.use((req, res, next) => {
@@ -54,6 +60,18 @@ export function createApp() {
   app.use('/api/loans', loansRouter);
   app.use('/api/receipts', receiptsRouter);
   app.use('/api/dashboard', dashboardRouter);
+
+  const frontendDist = path.resolve(__dirname, '../../frontend/dist');
+  if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        next();
+        return;
+      }
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+  }
 
   app.use((_req, res) => {
     res.status(404).json({ error: { message: 'Not found' } });

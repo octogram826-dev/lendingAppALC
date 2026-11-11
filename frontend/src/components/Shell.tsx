@@ -138,7 +138,7 @@ function crumbs(pathname: string): Array<{ label: string; to?: string }> {
                     : pathname.startsWith('/loans')
                       ? 'Loan Account'
                       : pathname.startsWith('/account/password')
-                        ? 'Password'
+                        ? 'Change Password'
                         : pathname.startsWith('/receipts')
                           ? 'Receipt'
                           : 'Dashboard';
