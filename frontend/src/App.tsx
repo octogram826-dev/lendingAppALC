@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { Shell } from './components/Shell';
 import { Denied, Splash } from './components/ui';
 import { AgreementRecordPage, AgreementsPage, DisbursePage } from './pages/Agreements';
+import { ApprovalsPage } from './pages/Approvals';
 import { CreditEvaluationsPage } from './pages/CreditEvaluations';
 import { ApplicationRecordPage, ApplicationsPage, ApprovalPage, EvaluationPage, NewApplicationPage } from './pages/Applications';
 import { BorrowerFormPage, BorrowerRecordPage, BorrowersPage } from './pages/Borrowers';
@@ -53,6 +54,7 @@ export function App() {
         <Route path="products/:id/edit" element={<Gate allow={can('products.write')}><ProductFormPage /></Gate>} />
         <Route path="products/:id" element={<Gate allow={can('products.read')}><ProductViewPage /></Gate>} />
         <Route path="credit-evaluations" element={<Gate allow={can('applications.read')}><CreditEvaluationsPage /></Gate>} />
+        <Route path="approvals" element={<Gate allow={can('applications.read')}><ApprovalsPage /></Gate>} />
         <Route path="applications" element={<Gate allow={can('applications.read')}><ApplicationsPage /></Gate>} />
         <Route path="applications/new" element={<Gate allow={can('applications.write')}><NewApplicationPage /></Gate>} />
         <Route path="applications/:id" element={<Gate allow={can('applications.read')}><ApplicationRecordPage /></Gate>} />

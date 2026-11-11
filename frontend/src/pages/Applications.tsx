@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { Alert, Badge, Card, Facts, Field, Loading, PageHeader, Steps } from '../components/ui';
+import { Alert, Loading, Steps } from '../components/ui';
 import { api, errorText } from '../lib/api';
-import { blankToNull, formatDate, formatWhen, label, money, qs, ratioPercent } from '../lib/format';
+import { blankToNull, formatWhen, label, money, qs, ratioPercent } from '../lib/format';
 import { useResource } from '../lib/resource';
 import type { Application, ApplicationRequirement, Borrower, Evaluation, One, Page, Product } from '../lib/types';
 
@@ -693,6 +693,13 @@ function RequirementEditor({
   );
 }
 
+const RESULT_TEXT: Record<string, string> = { pass: 'PASS', fail: 'FAIL', na: 'NOT APPLICABLE' };
+const RESULT_CLASS: Record<string, string> = { pass: 'is-pass', fail: 'is-fail', na: 'is-na' };
+
+function resultText(result: string) {
+  return RESULT_TEXT[result] ?? result.toUpperCase();
+}
+
 export function EvaluationPage() {
   const { id } = useParams();
   const { can } = useAuth();
@@ -726,6 +733,7 @@ export function EvaluationPage() {
 
   const editable = can('credit.evaluate') && ['submitted', 'under_review'].includes(application.status) && !application.approval;
   const evaluation = application.evaluation;
+  const statedIncome = borrower.data?.data.monthlyIncome;
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -753,82 +761,97 @@ export function EvaluationPage() {
   }
 
   return (
-    <>
-      <PageHeader
-        eyebrow={application.applicationNumber}
-        title="Credit evaluation"
-        lede={`${application.borrowerName} · ${money(application.requestedAmount)} for ${application.termMonths} months at ${application.monthlyInterestRate}%`}
-        actions={<Link className="btn" to={`/applications/${application.id}`}>Application</Link>}
-      />
-      <Alert>{error}</Alert>
-      <Alert kind="ok">{notice}</Alert>
+    <form className="users-page user-form" onSubmit={onSubmit}>
+      <header className="users-head">
+        <div>
+          <h1>Update Credit Evaluation</h1>
+          <p>{borrowerLabel(application.borrowerFirstName, application.borrowerMiddleName, application.borrowerLastName)} · {application.applicationNumber}</p>
+        </div>
+        <span className={`users-pill app-pill ${STATUS_CLASS[application.status] ?? ''}`}>{STATUS_TEXT[application.status] ?? label(application.status)}</span>
+      </header>
+      {error ? <Alert>{error}</Alert> : null}
+      {notice ? <Alert kind="ok">{notice}</Alert> : null}
       {!editable && !evaluation ? <Alert kind="info">An evaluation can be recorded after the application is submitted, and before a decision.</Alert> : null}
-      <div className="grid-2">
-        <Card title="Income">
-          <form className="stack" onSubmit={onSubmit}>
-            <p className="hint">Stated monthly income on the borrower record: {money(borrower.data?.data.monthlyIncome)}. The proposed installment is calculated when this evaluation is saved.</p>
-            <Field label="Verified monthly income">
-              <input inputMode="decimal" value={income} onChange={(event) => setIncome(event.target.value)} required disabled={!editable} />
-            </Field>
-            <Field label="Existing monthly obligations">
-              <input inputMode="decimal" value={obligations} onChange={(event) => setObligations(event.target.value)} disabled={!editable} />
-            </Field>
-            <Field label="Recommendation">
-              <select value={recommendation} onChange={(event) => setRecommendation(event.target.value as 'approve' | 'reject')} disabled={!editable}>
-                <option value="approve">Approve</option>
-                <option value="reject">Reject</option>
-              </select>
-            </Field>
-            <p className="hint">Approve requires every checklist item to be Pass or N/A, and “within repayment capacity” must be Pass.</p>
-            <Field label="Notes"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} disabled={!editable} /></Field>
-            {editable ? <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save evaluation'}</button> : null}
-          </form>
-        </Card>
-        <Card title="Result">
-          {evaluation ? <EvaluationSummary evaluation={evaluation} /> : <p className="muted">Save the evaluation to see the installment, disposable income, and policy result.</p>}
-        </Card>
-      </div>
-      <Card title="Capacity checklist">
-        <div className="check-list">
-          {checklist.map((item, index) => (
-            <div key={item.code} className="check-item">
-              <header>
+      <div className="app-split">
+        <section className="user-card">
+          <h2><i /><span className="eval-title">{borrowerLabel(application.borrowerFirstName, application.borrowerMiddleName, application.borrowerLastName)}<small>{application.applicationNumber}{application.purpose ? ` · ${application.purpose}` : ''}</small></span></h2>
+          {editable ? (
+            <div className="user-grid">
+              <label>
+                <span>Monthly Income <b>*</b></span>
+                <input inputMode="decimal" value={income} onChange={(event) => setIncome(event.target.value)} required />
+                <small>{statedIncome == null ? 'Stated income is not on the borrower record.' : `Stated income ${peso(Number(statedIncome))}.`}</small>
+              </label>
+              <label>
+                <span>Existing Monthly Obligations</span>
+                <input inputMode="decimal" value={obligations} onChange={(event) => setObligations(event.target.value)} />
+              </label>
+              <label>
+                <span>Recommendation <b>*</b></span>
+                <select value={recommendation} onChange={(event) => setRecommendation(event.target.value as 'approve' | 'reject')}>
+                  <option value="approve">Approve</option>
+                  <option value="reject">Reject</option>
+                </select>
+                <small>Approve needs every item Pass or N/A, and capacity must be Pass.</small>
+              </label>
+            </div>
+          ) : null}
+          {evaluation ? <EvaluationFacts evaluation={evaluation} /> : editable ? <p className="user-role-fallback">Save the evaluation to see disposable income, the proposed installment, and the policy result.</p> : null}
+        </section>
+        <section className="user-card">
+          <h2><i />Credit Evaluation Checklist</h2>
+          {(editable ? checklist : evaluation?.checklist ?? []).map((item, index) => (
+            <div key={item.code} className="eval-check">
+              <div>
                 <strong>{item.label}</strong>
+                {editable ? (
+                  <input value={item.notes ?? ''} placeholder="Note" onChange={(event) => setChecklist((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, notes: event.target.value } : entry))} />
+                ) : item.notes ? <small>{item.notes}</small> : null}
+              </div>
+              {editable ? (
                 <div className="segment">
                   {(['pass', 'fail', 'na'] as const).map((result) => (
-                    <button
-                      type="button"
-                      key={result}
-                      className={item.result === result ? 'on' : ''}
-                      disabled={!editable}
-                      onClick={() => setChecklist((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, result } : entry))}
-                    >
-                      {label(result)}
+                    <button type="button" key={result} className={item.result === result ? 'on' : ''} onClick={() => setChecklist((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, result } : entry))}>
+                      {resultText(result)}
                     </button>
                   ))}
                 </div>
-              </header>
-              <input value={item.notes} placeholder="Notes" disabled={!editable} onChange={(event) => setChecklist((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, notes: event.target.value } : entry))} />
+              ) : <span className={`eval-result ${RESULT_CLASS[item.result] ?? ''}`}>{resultText(item.result)}</span>}
             </div>
           ))}
-        </div>
-      </Card>
-    </>
+        </section>
+      </div>
+      <section className="user-card">
+        <h2><i />Credit Evaluation Note</h2>
+        {editable ? (
+          <label className="product-wide">
+            <span>Note</span>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Write your Note here..." />
+          </label>
+        ) : <p className="eval-note">{evaluation?.notes || '—'}</p>}
+      </section>
+      <div className="user-actions">
+        <Link className="users-outline" to="/credit-evaluations">Cancel</Link>
+        {editable ? <button className="users-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save evaluation'}</button> : null}
+        <Link className="users-outline" to={`/applications/${application.id}`}>Application</Link>
+      </div>
+    </form>
   );
 }
 
-function EvaluationSummary({ evaluation }: { evaluation: Evaluation }) {
+function EvaluationFacts({ evaluation }: { evaluation: Evaluation }) {
   return (
-    <Facts items={[
-      { label: 'Proposed installment', value: money(evaluation.proposedInstallment) },
-      { label: 'Disposable income', value: money(evaluation.disposableIncome) },
-      { label: 'Installment to income', value: ratioPercent(evaluation.installmentToIncomeRatio) },
-      { label: 'Policy maximum', value: ratioPercent(evaluation.maxInstallmentToIncome) },
-      { label: 'Within policy', value: evaluation.withinPolicy ? 'Yes' : 'No' },
-      { label: 'Recommendation', value: label(evaluation.recommendation) },
-      { label: 'Evaluator', value: evaluation.evaluatorName },
-      { label: 'Updated', value: formatWhen(evaluation.updatedAt) },
-    ]} />
+    <dl className="borrower-facts">
+      <div><dt>Monthly Income</dt><dd>{peso(evaluation.verifiedMonthlyIncome)}</dd></div>
+      <div><dt>Existing Monthly Obligations</dt><dd>{peso(evaluation.existingMonthlyObligations)}</dd></div>
+      <div><dt>Disposable Income</dt><dd>{peso(evaluation.disposableIncome)}</dd></div>
+      <div><dt>Proposed Installment</dt><dd>{money(evaluation.proposedInstallment)}/Month</dd></div>
+      <div><dt>Debt-service Ratio</dt><dd>{ratioPercent(evaluation.installmentToIncomeRatio)}</dd></div>
+      <div><dt>Policy Ceiling</dt><dd>{ratioPercent(evaluation.maxInstallmentToIncome)}</dd></div>
+      <div><dt>Inside Policy</dt><dd className={evaluation.withinPolicy ? 'eval-yes' : 'eval-no'}>{evaluation.withinPolicy ? 'YES' : 'NO'}</dd></div>
+      <div><dt>Recommendation</dt><dd>{label(evaluation.recommendation)}</dd></div>
+      <div><dt>Evaluator</dt><dd>{evaluation.evaluatorName}</dd></div>
+    </dl>
   );
 }
 
@@ -837,8 +860,9 @@ export function ApprovalPage() {
   const { can } = useAuth();
   const record = useResource<One<Application>>(id ? `/api/applications/${id}` : null);
   const application = record.data?.data;
-  const [decision, setDecision] = useState<'approved' | 'rejected'>('approved');
   const [comments, setComments] = useState('');
+  const [pending, setPending] = useState<'approved' | 'rejected' | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -848,8 +872,7 @@ export function ApprovalPage() {
   const approval = application.approval;
   const canDecide = can('credit.approve') && application.status === 'under_review' && evaluation && !approval;
 
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
+  async function recordDecision(decision: 'approved' | 'rejected') {
     setBusy(true);
     setError(null);
     try {
@@ -857,70 +880,98 @@ export function ApprovalPage() {
         method: 'POST',
         body: { decision, comments: blankToNull(comments) },
       });
+      setPending(null);
+      setNotice(decision === 'approved' ? 'Application approved successfully.' : 'Application rejected.');
       record.reload();
     } catch (err) {
       setError(errorText(err));
+      setPending(null);
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <>
-      <PageHeader
-        eyebrow={application.applicationNumber}
-        title="Approval"
-        lede="One decision. It cannot be changed after it is recorded."
-        actions={<Link className="btn" to={`/applications/${application.id}`}>Application</Link>}
-      />
-      <Alert>{error}</Alert>
-      <div className="grid-2">
-        <Card title="Evaluation">
-          {evaluation ? <EvaluationSummary evaluation={evaluation} /> : <Alert kind="info">Record an evaluation before a decision can be made.</Alert>}
-          {evaluation ? (
-            <div className="stack" style={{ marginTop: 14 }}>
-              {evaluation.checklist.map((item) => (
-                <div key={item.code} className="actions">
-                  <Badge value={item.result} />
-                  <span>{item.label}</span>
+    <div className="users-page user-form">
+      <header className="users-head">
+        <div>
+          <h1>Update Approval</h1>
+          <p>{borrowerLabel(application.borrowerFirstName, application.borrowerMiddleName, application.borrowerLastName)} · {application.applicationNumber}</p>
+        </div>
+        <span className={`users-pill app-pill ${application.status === 'under_review' ? 'is-for-approval' : STATUS_CLASS[application.status] ?? ''}`}>
+          {application.status === 'under_review' ? 'FOR APPROVAL' : STATUS_TEXT[application.status] ?? label(application.status)}
+        </span>
+      </header>
+      {error ? <Alert>{error}</Alert> : null}
+      {notice ? <Alert kind="ok">{notice}</Alert> : null}
+      {!evaluation ? <Alert kind="info">Record an evaluation before a decision can be made.</Alert> : null}
+      {evaluation ? (
+        <div className="app-split">
+          <section className="user-card">
+            <h2><i /><span className="eval-title">{borrowerLabel(application.borrowerFirstName, application.borrowerMiddleName, application.borrowerLastName)}<small>{application.applicationNumber}{application.purpose ? ` · ${application.purpose}` : ''}</small></span></h2>
+            <EvaluationFacts evaluation={evaluation} />
+          </section>
+          <section className="user-card">
+            <h2><i />Credit Evaluation Checklist</h2>
+            {evaluation.checklist.map((item) => (
+              <div key={item.code} className="eval-check">
+                <div>
+                  <strong>{item.label}</strong>
+                  {item.notes ? <small>{item.notes}</small> : null}
                 </div>
-              ))}
-            </div>
-          ) : null}
-        </Card>
-        <Card title="Decision">
-          {approval ? (
-            <Facts items={[
-              { label: 'Decision', value: <Badge value={approval.decision} /> },
-              { label: 'Approver', value: approval.approverName },
-              { label: 'When', value: formatWhen(approval.decidedAt) },
-              { label: 'Comments', value: approval.comments || '—' },
-            ]} />
-          ) : canDecide ? (
-            <form className="stack" onSubmit={onSubmit}>
-              <Field label="Decision">
-                <select value={decision} onChange={(event) => setDecision(event.target.value as 'approved' | 'rejected')}>
-                  <option value="approved">Approve</option>
-                  <option value="rejected">Reject</option>
-                </select>
-              </Field>
-              <Field label="Comments"><textarea value={comments} onChange={(event) => setComments(event.target.value)} /></Field>
-              {evaluation && !evaluation.withinPolicy && decision === 'approved' ? (
-                <Alert kind="info">The installment is above the income policy. You can still approve.</Alert>
-              ) : null}
-              <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Record decision'}</button>
-            </form>
-          ) : (
-            <p className="muted">
-              {application.status === 'submitted' ? 'The evaluation has to be saved before this application can be decided.' : 'A decision is available once the application is under review.'}
-            </p>
-          )}
-          {approval?.decision === 'approved' && can('agreements.write') ? (
-            <div style={{ marginTop: 14 }}><Link className="btn btn-primary" to={`/applications/${application.id}`}>Create the agreement</Link></div>
-          ) : null}
-        </Card>
+                <span className={`eval-result ${RESULT_CLASS[item.result] ?? ''}`}>{resultText(item.result)}</span>
+              </div>
+            ))}
+          </section>
+        </div>
+      ) : null}
+      <section className="user-card">
+        <h2><i />Credit Evaluation Note</h2>
+        <p className="eval-note">{evaluation?.notes || '—'}</p>
+      </section>
+      <section className="user-card">
+        <h2><i />Approval Note</h2>
+        {approval ? (
+          <>
+            <p className="eval-note">{approval.comments || '—'}</p>
+            <p className="user-role-fallback">{label(approval.decision)} by {approval.approverName} · {formatWhen(approval.decidedAt)}</p>
+          </>
+        ) : canDecide ? (
+          <label className="product-wide">
+            <span>Note</span>
+            <textarea value={comments} onChange={(event) => setComments(event.target.value)} placeholder="Write your Note here..." />
+          </label>
+        ) : (
+          <p className="user-role-fallback">
+            {application.status === 'submitted' ? 'The evaluation has to be saved before this application can be decided.' : 'A decision is available once the application is under review.'}
+          </p>
+        )}
+        {canDecide && evaluation && !evaluation.withinPolicy ? (
+          <p className="user-role-fallback">The installment is above the income policy. You can still approve.</p>
+        ) : null}
+      </section>
+      <div className="user-actions">
+        {canDecide ? <button type="button" className="users-outline users-danger eval-reject" disabled={busy} onClick={() => setPending('rejected')}>Reject</button> : null}
+        <Link className="users-outline" to="/approvals">Cancel</Link>
+        {canDecide ? <button type="button" className="users-primary" disabled={busy} onClick={() => setPending('approved')}>Approve</button> : null}
+        {approval?.decision === 'approved' && can('agreements.write') && !application.agreement ? (
+          <Link className="users-primary" to={`/applications/${application.id}`}>Create the agreement</Link>
+        ) : null}
       </div>
-      <p className="hint">Recorded {formatDate(application.createdAt)}.</p>
-    </>
+      {pending ? (
+        <div className="role-modal-backdrop" role="presentation" onClick={() => (busy ? null : setPending(null))}>
+          <div className="role-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <h2>Confirmation</h2>
+            <p>Are you sure you want to {pending === 'approved' ? 'Approve' : 'Reject'} this Application?</p>
+            <div className="role-modal-actions">
+              <button type="button" className="users-outline" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
+              <button type="button" className={pending === 'approved' ? 'users-primary' : 'users-primary is-danger'} disabled={busy} onClick={() => void recordDecision(pending)}>
+                {busy ? 'Saving…' : pending === 'approved' ? 'Yes, Approve' : 'Yes, Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

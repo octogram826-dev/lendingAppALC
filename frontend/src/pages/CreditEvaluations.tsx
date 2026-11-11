@@ -160,13 +160,13 @@ export function CreditEvaluationsPage() {
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search anything..." />
             </label>
             <label className="users-filter">
-              Inside Policy: {policy === 'yes' ? 'Yes' : policy === 'no' ? 'No' : 'All Record'}
-              <img src="/shell/chevron-down.svg" alt="" width={20} height={20} />
-              <select value={policy} onChange={(event) => { setPolicy(event.target.value); setPage(1); }}>
+              <span>Inside Policy:</span>
+              <select aria-label="Inside Policy" value={policy} onChange={(event) => { setPolicy(event.target.value); setPage(1); }}>
                 <option value="">All Record</option>
                 <option value="yes">Yes</option>
                 <option value="no">No</option>
               </select>
+              <img src="/shell/chevron-down.svg" alt="" width={20} height={20} />
             </label>
           </div>
           {error ? <Alert>{error}</Alert> : null}

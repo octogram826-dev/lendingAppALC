@@ -36,7 +36,7 @@ const NAV: Array<{ id: string; label: string; items: NavItem[] }> = [
       { to: '/products', label: 'Loan Products', icon: '/shell/products.svg', allow: ['products.read'] },
       { to: '/applications', label: 'Applications', icon: '/shell/applications.svg', allow: ['applications.read'] },
       { to: '/credit-evaluations', label: 'Credit Evaluations', icon: '/shell/credit.svg', allow: ['applications.read'] },
-      { label: 'Approval', icon: '/shell/approval.svg', allow: ['applications.read'] },
+      { to: '/approvals', label: 'Approval', icon: '/shell/approval.svg', allow: ['applications.read'] },
       { to: '/agreements', label: 'Agreements', icon: '/shell/agreements.svg', allow: ['agreements.write', 'disbursements.write', 'loans.read'] },
       { to: '/loans', label: 'Loan Account', icon: '/shell/loans.svg', allow: ['loans.read'] },
     ],
@@ -110,6 +110,20 @@ function crumbs(pathname: string): Array<{ label: string; to?: string }> {
       { label: 'Add Application' },
     ];
   }
+  if (/^\/applications\/\d+\/evaluation/.test(pathname)) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Credit Evaluations', to: '/credit-evaluations' },
+      { label: 'Update Credit Evaluation' },
+    ];
+  }
+  if (/^\/applications\/\d+\/approval/.test(pathname)) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Approval', to: '/approvals' },
+      { label: 'Update Approval' },
+    ];
+  }
   if (/^\/applications\/\d+/.test(pathname)) {
     return [
       { label: 'Dashboard', to: '/' },
@@ -145,8 +159,10 @@ function crumbs(pathname: string): Array<{ label: string; to?: string }> {
               ? 'Borrowers'
               : pathname.startsWith('/products')
                 ? 'Loan Products'
-                : pathname.startsWith('/credit-evaluations')
-                  ? 'Credit Evaluations'
+                : pathname.startsWith('/approvals')
+                  ? 'Approval'
+                  : pathname.startsWith('/credit-evaluations')
+                    ? 'Credit Evaluations'
                   : pathname.startsWith('/applications')
                     ? 'Applications'
                   : pathname.startsWith('/agreements')
@@ -159,6 +175,14 @@ function crumbs(pathname: string): Array<{ label: string; to?: string }> {
                           ? 'Receipt'
                           : 'Dashboard';
   return [{ label: 'Dashboard', to: '/' }, { label: current }];
+}
+
+function navActive(pathname: string, to: string) {
+  if (to === '/') return pathname === '/';
+  if (to === '/applications') return pathname.startsWith('/applications') && !/\/evaluation|\/approval/.test(pathname);
+  if (to === '/credit-evaluations') return pathname.startsWith('/credit-evaluations') || /\/applications\/\d+\/evaluation/.test(pathname);
+  if (to === '/approvals') return pathname.startsWith('/approvals') || /\/applications\/\d+\/approval/.test(pathname);
+  return pathname === to || pathname.startsWith(`${to}/`);
 }
 
 function initials(firstName: string, lastName: string) {
@@ -253,20 +277,16 @@ export function Shell() {
                           </span>
                         );
                       }
+                      const active = navActive(location.pathname, item.to);
                       return (
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          end={item.to === '/'}
-                          className={({ isActive }) => (isActive ? 'nav-item is-active' : 'nav-item')}
+                          className={active ? 'nav-item is-active' : 'nav-item'}
                         >
-                          {({ isActive }) => (
-                            <>
-                              <img src={icon(isActive)} alt="" width="20" height="20" />
-                              <span>{item.label}</span>
-                              {isActive ? <i className="nav-mark" /> : null}
-                            </>
-                          )}
+                          <img src={icon(active)} alt="" width="20" height="20" />
+                          <span>{item.label}</span>
+                          {active ? <i className="nav-mark" /> : null}
                         </NavLink>
                       );
                     })}

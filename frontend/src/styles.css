@@ -474,6 +474,21 @@ tr:last-child .users-status-menu { top: auto; bottom: calc(100% + 4px); }
 .eval-yes, .eval-no { font-size: 14px; font-weight: 600; line-height: 21px; }
 .eval-yes { color: #047857; }
 .eval-no { color: #dc2626; }
+.eval-check { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid #f3f4f6; }
+.eval-check:last-child { border-bottom: 0; }
+.eval-check strong { display: block; color: #111827; font-size: 14px; font-weight: 600; line-height: 21px; }
+.eval-check small, .eval-check input { display: block; margin-top: 4px; color: #6b7280; font-size: 13px; font-weight: 400; line-height: 20px; }
+.eval-check input { width: min(420px, 100%); height: 36px; margin-top: 8px; color: #111827; }
+.eval-result { font-size: 13px; font-weight: 700; line-height: 20px; white-space: nowrap; }
+.eval-result.is-pass { color: #047857; }
+.eval-result.is-fail { color: #dc2626; }
+.eval-result.is-na { color: #6b7280; }
+.users-danger { color: #dc2626; border-color: #dc2626; }
+.users-primary.is-danger { background: #dc2626; }
+.eval-reject { margin-right: auto; }
+.eval-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.user-grid label small { color: #6b7280; font-size: 13px; font-weight: 400; line-height: 20px; }
+.eval-note { margin: 0; color: #111827; font-size: 16px; line-height: 24px; white-space: pre-wrap; }
 .product-metric {
   display: flex;
   flex-direction: column;
@@ -576,6 +591,7 @@ tr:last-child .users-status-menu { top: auto; bottom: calc(100% + 4px); }
 .app-pill { border-radius: 999px; }
 .app-pill.is-draft, .app-pill.is-withdrawn { background: #f3f4f6; color: #4b5563; }
 .app-pill.is-submitted, .app-pill.is-review, .app-pill.is-pending { background: #fff7ed; border: 1px solid #fed7aa; color: #c2410c; }
+.app-pill.is-for-approval { background: #ecfeff; border: 1px solid #a5f3fc; color: #0e7490; }
 .app-pill.is-approved { background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; }
 .app-pill.is-rejected { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
 .app-pill.is-disbursed { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
