@@ -7,7 +7,7 @@ import { execute, query } from '../db';
 import { AppError, isDuplicateKey } from '../errors';
 import { asyncHandler, requireAuth, requirePermission, validate } from '../http';
 import { parseId } from '../params';
-import { hasAnyField, interestRateSchema, pageMeta, pageQuerySchema, positiveMoneySchema } from '../schemas';
+import { hasAnyField, interestRateSchema, LIKE_ESCAPE, likeContains, pageMeta, pageQuerySchema, positiveMoneySchema } from '../schemas';
 
 type ProductRow = RowDataPacket & {
   id: number;
@@ -166,7 +166,10 @@ productsRouter.get(
   requirePermission('products.read'),
   asyncHandler(async (req, res) => {
     const filters = validate(
-      pageQuerySchema.extend({ status: z.enum(['active', 'inactive']).optional() }),
+      pageQuerySchema.extend({
+        status: z.enum(['active', 'inactive']).optional(),
+        q: z.string().trim().max(100).optional(),
+      }),
       req.query,
     );
     const where: string[] = [];
@@ -174,6 +177,11 @@ productsRouter.get(
     if (filters.status) {
       where.push('status = ?');
       params.push(filters.status);
+    }
+    if (filters.q) {
+      const like = likeContains(filters.q);
+      where.push(`(code LIKE ? ${LIKE_ESCAPE} OR name LIKE ? ${LIKE_ESCAPE})`);
+      params.push(like, like);
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
     const totalRows = await query<RowDataPacket & { count: number }>(

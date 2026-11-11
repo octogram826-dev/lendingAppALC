@@ -9,7 +9,7 @@ import { DashboardPage } from './pages/Dashboard';
 import { LoanAccountPage, LoansPage, PostPaymentPage, ReceiptPage } from './pages/Loans';
 import { LoginPage } from './pages/Login';
 import { PasswordPage } from './pages/Password';
-import { ProductFormPage, ProductsPage } from './pages/Products';
+import { ProductFormPage, ProductViewPage, ProductsPage } from './pages/Products';
 import { RoleFormPage, RolesPage } from './pages/Roles';
 import { SettingsPage } from './pages/Settings';
 import { UserFormPage, UsersPage } from './pages/Users';
@@ -49,7 +49,8 @@ export function App() {
         <Route path="borrowers/:id/edit" element={<Gate allow={can('borrowers.write')}><BorrowerFormPage /></Gate>} />
         <Route path="products" element={<Gate allow={can('products.read')}><ProductsPage /></Gate>} />
         <Route path="products/new" element={<Gate allow={can('products.write')}><ProductFormPage /></Gate>} />
-        <Route path="products/:id" element={<Gate allow={can('products.read')}><ProductFormPage /></Gate>} />
+        <Route path="products/:id/edit" element={<Gate allow={can('products.write')}><ProductFormPage /></Gate>} />
+        <Route path="products/:id" element={<Gate allow={can('products.read')}><ProductViewPage /></Gate>} />
         <Route path="applications" element={<Gate allow={can('applications.read')}><ApplicationsPage /></Gate>} />
         <Route path="applications/new" element={<Gate allow={can('applications.write')}><NewApplicationPage /></Gate>} />
         <Route path="applications/:id" element={<Gate allow={can('applications.read')}><ApplicationRecordPage /></Gate>} />

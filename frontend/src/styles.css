@@ -414,6 +414,8 @@ a.nav-item:hover { background: #f9fafb; }
   background: white;
 }
 .users-status { position: relative; display: inline-flex; }
+.users-status:has(.users-status-menu) { z-index: 4; }
+tr:last-child .users-status-menu { top: auto; bottom: calc(100% + 4px); }
 .users-pill {
   height: 25px;
   display: inline-flex;
@@ -453,6 +455,103 @@ a.nav-item:hover { background: #f9fafb; }
 .users-page .stat.alert-stat strong { color: var(--danger); }
 .users-page .stat em { color: #4b5563; font-family: Inter, sans-serif; font-size: 12px; font-weight: 400; line-height: 16px; }
 .users-page .status-row a { font-family: Inter, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; }
+.products-stack { display: flex; flex-direction: column; gap: 15px; }
+.product-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; }
+.product-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: white;
+}
+.product-metric header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.product-metric strong { color: #111827; font-size: 24px; font-weight: 700; line-height: 30px; }
+.user-grid > label.product-wide { width: 100%; }
+.product-range > div { display: flex; align-items: center; gap: 8px; }
+.product-range em { color: #6b7280; font-style: normal; }
+.product-view-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.product-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 30px;
+}
+.product-update { height: 40px; }
+.product-card-title { display: flex; align-items: center; gap: 10px; }
+.req-actions { display: flex; justify-content: center; gap: 10px; }
+.req-actions .users-edit img { width: 20px; height: 20px; }
+.product-modal {
+  width: min(391px, calc(100% - 32px));
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+}
+.product-modal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+  padding: 0 15px 0 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.product-modal header h2 { font-size: 16px; line-height: 24px; }
+.product-req-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.product-req-head h2, .user-card h2:has(small) { align-items: flex-start; }
+.product-req-head h2 { margin: 0; }
+.user-card h2:has(small) i { margin-top: 4px; }
+.product-modal b { color: #dc2626; font-weight: 600; }
+.product-modal-body { display: flex; flex-direction: column; gap: 20px; padding: 24px; }
+.user-form textarea {
+  width: 100%;
+  min-height: 96px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #111827;
+  font-family: Inter, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  resize: vertical;
+}
+.users-table td .user-switch { display: block; margin: 0 auto; }
+.product-modal label { display: flex; flex-direction: column; gap: 8px; color: #4b5563; font-size: 14px; font-weight: 600; line-height: 21px; }
+.product-modal input, .product-modal textarea {
+  width: 100%;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #111827;
+  font-family: Inter, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+.product-modal input { height: 45px; }
+.product-modal textarea { min-height: 110px; resize: vertical; }
+.product-modal footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 24px;
+  border-top: 1px solid #e5e7eb;
+}
+.product-modal footer .users-outline, .product-modal footer .users-primary { height: 40px; }
 .users-page .banner, .users-page .banner a { font-family: Inter, sans-serif; font-size: 14px; font-weight: 600; line-height: 21px; }
 .users-page .banner div div { font-weight: 400; }
 .users-pill:disabled { cursor: default; }
@@ -981,6 +1080,7 @@ input:disabled, select:disabled, textarea:disabled { background: #f4f7f8; color:
   .users-head, .users-toolbar, .users-pager { flex-direction: column; align-items: stretch; }
   .user-grid > label { width: 100%; }
   .role-perms, .borrower-facts { grid-template-columns: 1fr 1fr; }
+  .product-metrics { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 860px) {
   .login-card { padding: 48px 24px; }

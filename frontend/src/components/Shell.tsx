@@ -82,6 +82,27 @@ function crumbs(pathname: string): Array<{ label: string; to?: string }> {
       { label: 'Borrower' },
     ];
   }
+  if (pathname.startsWith('/products/new')) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Loan Products', to: '/products' },
+      { label: 'Add Loan Product' },
+    ];
+  }
+  if (/^\/products\/\d+\/edit/.test(pathname)) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Loan Products', to: '/products' },
+      { label: 'Update Loan Product' },
+    ];
+  }
+  if (/^\/products\/\d+/.test(pathname)) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Loan Products', to: '/products' },
+      { label: 'View Loan Product' },
+    ];
+  }
   const current = pathname.startsWith('/users/new')
     ? 'Add User'
     : pathname.startsWith('/users/')
