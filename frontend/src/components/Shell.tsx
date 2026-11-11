@@ -103,6 +103,20 @@ function crumbs(pathname: string): Array<{ label: string; to?: string }> {
       { label: 'View Loan Product' },
     ];
   }
+  if (pathname.startsWith('/applications/new')) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Applications', to: '/applications' },
+      { label: 'Add Application' },
+    ];
+  }
+  if (/^\/applications\/\d+/.test(pathname)) {
+    return [
+      { label: 'Dashboard', to: '/' },
+      { label: 'Applications', to: '/applications' },
+      { label: 'Application' },
+    ];
+  }
   const current = pathname.startsWith('/users/new')
     ? 'Add User'
     : pathname.startsWith('/users/')

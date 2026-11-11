@@ -67,6 +67,9 @@ function mapApplication(row: ApplicationRow) {
     applicationNumber: row.application_number,
     borrowerId: row.borrower_id,
     borrowerNumber: row.borrower_number,
+    borrowerFirstName: row.first_name,
+    borrowerMiddleName: row.middle_name,
+    borrowerLastName: row.last_name,
     borrowerName: fullName(row.first_name, row.middle_name, row.last_name),
     borrowerVerificationStatus: row.verification_status,
     productId: row.product_id,
@@ -225,7 +228,7 @@ applicationsRouter.post(
         throw new AppError(404, 'Loan product not found');
       }
       assertProductFit(product, body.requestedAmount, body.termMonths);
-      const applicationNumber = await nextNumber(conn, 'application', 'APP');
+      const applicationNumber = await nextNumber(conn, 'application', 'AN', 4);
       const created = await execute(
         `INSERT INTO loan_applications (
            application_number, borrower_id, product_id, requested_amount, term_months,

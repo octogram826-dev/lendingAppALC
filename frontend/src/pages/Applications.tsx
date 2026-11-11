@@ -1,13 +1,62 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { Alert, Badge, Card, Empty, Facts, Field, Filters, Loading, PageHeader, Pager, Steps } from '../components/ui';
+import { Alert, Badge, Card, Facts, Field, Loading, PageHeader, Steps } from '../components/ui';
 import { api, errorText } from '../lib/api';
 import { blankToNull, formatDate, formatWhen, label, money, qs, ratioPercent } from '../lib/format';
 import { useResource } from '../lib/resource';
 import type { Application, ApplicationRequirement, Borrower, Evaluation, One, Page, Product } from '../lib/types';
 
 const STATUSES = ['draft', 'submitted', 'under_review', 'approved', 'rejected', 'withdrawn', 'disbursed'];
+const PAGE_SIZE = 10;
+const STATUS_TEXT: Record<string, string> = {
+  draft: 'DRAFT',
+  submitted: 'SUBMITTED',
+  under_review: 'UNDER REVIEW',
+  approved: 'APPROVED',
+  rejected: 'REJECTED',
+  withdrawn: 'WITHDRAWN',
+  disbursed: 'DISBURSED',
+};
+const STATUS_CLASS: Record<string, string> = {
+  draft: 'is-draft',
+  submitted: 'is-submitted',
+  under_review: 'is-review',
+  approved: 'is-approved',
+  rejected: 'is-rejected',
+  withdrawn: 'is-withdrawn',
+  disbursed: 'is-disbursed',
+};
+
+function borrowerLabel(firstName: string, middleName: string | null, lastName: string) {
+  const initial = middleName?.trim() ? `${middleName.trim()[0]?.toUpperCase()}.` : '';
+  return [firstName, initial, lastName].filter((part) => part.length > 0).join(' ');
+}
+
+function initials(firstName: string, lastName: string) {
+  return `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase();
+}
+
+function quotePreview(principal: number, rate: number, term: number) {
+  if (!(principal > 0) || !(rate >= 0) || !Number.isInteger(term) || term < 1) return null;
+  const principalCents = Math.round(principal * 100);
+  const [whole, fraction = ''] = rate.toFixed(4).split('.');
+  const rateScaled = Number(whole) * 10000 + Number(fraction);
+  const numerator = BigInt(principalCents) * BigInt(rateScaled) * BigInt(term);
+  const divisor = 1_000_000n;
+  const remainder = numerator % divisor;
+  let interest = numerator / divisor;
+  if (remainder * 2n >= divisor) interest += 1n;
+  const interestCents = Number(interest);
+  const monthlyInterest = Math.floor(interestCents / term);
+  const monthlyPrincipal = Math.floor(principalCents / term);
+  return {
+    monthlyInterest: monthlyInterest / 100,
+    totalInterest: interestCents / 100,
+    total: (principalCents + interestCents) / 100,
+    installment: (monthlyPrincipal + monthlyInterest) / 100,
+  };
+}
 const CHECKLIST = [
   { code: 'identity_verified', label: 'Identity documents verified' },
   { code: 'income_reviewed', label: 'Income documents reviewed' },
@@ -19,86 +68,232 @@ const CHECKLIST = [
 
 export function ApplicationsPage() {
   const { can } = useAuth();
-  const [params, setParams] = useSearchParams();
-  const page = Number(params.get('page') || 1);
-  const q = params.get('q') ?? '';
-  const status = params.get('status') ?? '';
-  const [draft, setDraft] = useState(q);
-  const list = useResource<Page<Application>>(`/api/applications${qs({ page, pageSize: 20, q, status })}`);
+  const [params] = useSearchParams();
+  const [rows, setRows] = useState<Application[]>([]);
+  const [meta, setMeta] = useState<Page<Application>['meta'] | null>(null);
+  const [catalog, setCatalog] = useState<Application[]>([]);
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState(params.get('q') ?? '');
+  const [search, setSearch] = useState(params.get('q') ?? '');
+  const [status, setStatus] = useState(params.get('status') ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  function search(event: FormEvent) {
-    event.preventDefault();
-    const next = new URLSearchParams(params);
-    if (draft.trim()) next.set('q', draft.trim());
-    else next.delete('q');
-    next.delete('page');
-    setParams(next);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearch(query.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadCatalog() {
+      const collected: Application[] = [];
+      let next = 1;
+      let total = 0;
+      do {
+        const result = await api<Page<Application>>(`/api/applications${qs({ page: next, pageSize: 100 })}`);
+        collected.push(...result.data);
+        total = result.meta.total;
+        next += 1;
+      } while (collected.length < total && next <= 20);
+      if (!ignore) setCatalog(collected);
+    }
+    loadCatalog().catch(() => {
+      if (!ignore) setCatalog([]);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    setLoading(true);
+    api<Page<Application>>(`/api/applications${qs({ page, pageSize: PAGE_SIZE, q: search || undefined, status: status || undefined })}`)
+      .then((result) => {
+        if (ignore) return;
+        setRows(result.data);
+        setMeta(result.meta);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (!ignore) setError(errorText(err));
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [page, search, status]);
+
+  const awaiting = catalog.filter((item) => item.status === 'submitted').length;
+  const forApproval = catalog.filter((item) => item.status === 'under_review').length;
+  const requested = catalog.reduce((sum, item) => sum + Number(item.requestedAmount), 0);
+  const start = meta && meta.total > 0 ? (meta.page - 1) * meta.pageSize + 1 : 0;
+  const end = meta ? Math.min(meta.page * meta.pageSize, meta.total) : 0;
+  const pages = meta ? Math.max(1, Math.ceil(meta.total / meta.pageSize)) : 1;
+
+  async function exportCsv() {
+    const collected: Application[] = [];
+    let next = 1;
+    let total = 0;
+    try {
+      do {
+        const result = await api<Page<Application>>(
+          `/api/applications${qs({ page: next, pageSize: 100, q: search || undefined, status: status || undefined })}`,
+        );
+        collected.push(...result.data);
+        total = result.meta.total;
+        next += 1;
+      } while (collected.length < total && next <= 20);
+      const header = ['Application', 'Borrower', 'Borrower Number', 'Product', 'Amount', 'Term', 'Rate', 'Status'];
+      const lines = collected.map((item) =>
+        [item.applicationNumber, item.borrowerName, item.borrowerNumber, item.productName, item.requestedAmount, item.termMonths, item.monthlyInterestRate, item.status]
+          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+          .join(','),
+      );
+      const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'applications.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(errorText(err));
+    }
   }
 
   return (
-    <>
-      <PageHeader
-        eyebrow="Lending"
-        title="Applications"
-        lede="Drafts, credit review, and the decision that opens an agreement."
-        actions={can('applications.write') ? <Link className="btn btn-primary" to="/applications/new">New application</Link> : null}
-      />
-      <Card>
-        <Filters query={draft} onQuery={setDraft} onSearch={search}>
-          <select aria-label="Status" value={status} onChange={(event) => {
-            const next = new URLSearchParams(params);
-            if (event.target.value) next.set('status', event.target.value);
-            else next.delete('status');
-            next.delete('page');
-            setParams(next);
-          }}>
-            <option value="">All statuses</option>
-            {STATUSES.map((item) => <option key={item} value={item}>{label(item)}</option>)}
-          </select>
-        </Filters>
-        {list.error ? <Alert>{list.error}</Alert> : null}
-        {list.loading && !list.data ? <Loading /> : null}
-        {list.data && list.data.data.length === 0 ? <Empty title="No applications match" /> : null}
-        {list.data && list.data.data.length > 0 ? (
-          <div className="table-wrap">
-            <table>
+    <div className="users-page">
+      <header className="users-head">
+        <div>
+          <h1>Applications</h1>
+          <p>Manage, review, and track borrower loan applications.</p>
+        </div>
+        <div className="users-head-actions">
+          <button className="users-outline" type="button" onClick={exportCsv}>
+            <img src="/shell/export.svg" alt="" width={20} height={20} />
+            Export CSV
+          </button>
+          {can('applications.write') && (
+            <Link className="users-primary" to="/applications/new">
+              <img src="/shell/plus.svg" alt="" width={20} height={20} />
+              Add Application
+            </Link>
+          )}
+        </div>
+      </header>
+      <div className="products-stack">
+        <div className="product-metrics">
+          <article className="product-metric"><header>Total Applications</header><strong>{catalog.length}</strong></article>
+          <article className="product-metric"><header>Awaiting Evaluation</header><strong>{awaiting}</strong></article>
+          <article className="product-metric"><header>For Approval</header><strong>{forApproval}</strong></article>
+          <article className="product-metric"><header>Total Requested Amount</header><strong>{money(requested)}</strong></article>
+        </div>
+        <section className="users-card">
+          <div className="users-toolbar">
+            <label className="users-search">
+              <img src="/shell/search.svg" alt="" width={20} height={20} />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search anything..." />
+            </label>
+            <label className="users-filter">
+              Status: {status ? label(status) : 'All Record'}
+              <img src="/shell/chevron-down.svg" alt="" width={20} height={20} />
+              <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
+                <option value="">All Record</option>
+                {STATUSES.map((item) => <option key={item} value={item}>{label(item)}</option>)}
+              </select>
+            </label>
+          </div>
+          {error ? <Alert>{error}</Alert> : null}
+          <div className="users-table-wrap">
+            <table className="users-table">
               <thead>
                 <tr>
-                  <th>Application</th>
+                  <th>Application Number</th>
                   <th>Borrower</th>
                   <th>Product</th>
-                  <th className="num">Amount</th>
-                  <th className="num">Term</th>
+                  <th>Amount</th>
+                  <th>Term</th>
+                  <th>Rate</th>
                   <th>Status</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {list.data.data.map((application) => (
+                {rows.map((application) => (
                   <tr key={application.id}>
-                    <td><Link to={`/applications/${application.id}`}>{application.applicationNumber}</Link></td>
+                    <td><Link className="app-number" to={`/applications/${application.id}`}>{application.applicationNumber}</Link></td>
                     <td>
-                      <Link to={`/borrowers/${application.borrowerId}`}>{application.borrowerName}</Link>
-                      <div className="hint">{application.borrowerNumber}</div>
+                      <div className="app-person">
+                        <span className="app-avatar">{initials(application.borrowerFirstName, application.borrowerLastName)}</span>
+                        <span className="app-stack">
+                          <strong><Link to={`/borrowers/${application.borrowerId}`}>{borrowerLabel(application.borrowerFirstName, application.borrowerMiddleName, application.borrowerLastName)}</Link></strong>
+                          <small>{application.borrowerNumber}</small>
+                        </span>
+                      </div>
                     </td>
-                    <td>{application.productCode}</td>
-                    <td className="num">{money(application.requestedAmount)}</td>
-                    <td className="num">{application.termMonths} mo</td>
-                    <td><Badge value={application.status} /></td>
+                    <td>
+                      <span className="app-stack">
+                        <strong>{application.productName}</strong>
+                        <small>{application.productCode}</small>
+                      </span>
+                    </td>
+                    <td>{money(application.requestedAmount)}</td>
+                    <td>{application.termMonths} Months</td>
+                    <td>{Number(application.monthlyInterestRate).toFixed(2)}%</td>
+                    <td><span className={`users-pill app-pill ${STATUS_CLASS[application.status] ?? ''}`}>{STATUS_TEXT[application.status] ?? label(application.status)}</span></td>
+                    <td>
+                      <Link className="users-edit" to={`/applications/${application.id}`} aria-label={`View ${application.applicationNumber}`}>
+                        <img src="/shell/eye.svg" alt="" width={20} height={20} />
+                      </Link>
+                    </td>
                   </tr>
                 ))}
+                {!loading && rows.length === 0 && (
+                  <tr><td colSpan={8}>No applications match this view.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
-        ) : null}
-        {list.data ? (
-          <Pager page={list.data.meta.page} pageSize={list.data.meta.pageSize} total={list.data.meta.total} onPage={(nextPage) => {
-            const next = new URLSearchParams(params);
-            next.set('page', String(nextPage));
-            setParams(next);
-          }} />
-        ) : null}
-      </Card>
-    </>
+          <footer className="users-pager">
+            <span>Showing {start} to {end} of {meta?.total ?? 0} entries</span>
+            <div>
+              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} aria-label="Previous page">
+                <img src="/shell/chevron-left.svg" alt="" width={16} height={16} />
+              </button>
+              {Array.from({ length: pages }, (_, index) => index + 1).slice(0, 5).map((number) => (
+                <button key={number} type="button" className={number === page ? 'is-current' : ''} onClick={() => setPage(number)}>{number}</button>
+              ))}
+              <button type="button" disabled={!meta || page >= pages} onClick={() => setPage((current) => current + 1)} aria-label="Next page">
+                <img src="/shell/chevron-page.svg" alt="" width={16} height={16} />
+              </button>
+              <em>Page: {page}</em>
+            </div>
+          </footer>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function LoanEstimate({ rate, amount, term }: { rate: number; amount: string; term: string }) {
+  const quote = quotePreview(Number(amount), rate, Number(term));
+  return (
+    <aside className="user-card app-estimate">
+      <h2><i />Loan Estimate</h2>
+      <div><span>Requested Amount</span><strong>{quote ? money(Number(amount)) : '₱0'}</strong></div>
+      <div><span>Interest Rate ({rate.toFixed(2)}%)</span><strong>{quote ? `${money(quote.monthlyInterest)}/Month` : '₱0/Month'}</strong></div>
+      <div><span>Loan Term</span><strong>{Number(term) > 0 ? `${Number(term)} Month` : '0 Month'}</strong></div>
+      <div><span>Interest Amount</span><strong>{quote ? money(quote.totalInterest) : '₱0'}</strong></div>
+      <div><span>Total Repayment</span><strong>{quote ? money(quote.total) : '₱0'}</strong></div>
+      <p className="app-installment"><span>Monthly installment</span><b>{quote ? money(quote.installment) : '₱0.00'}</b></p>
+    </aside>
   );
 }
 
@@ -112,6 +307,7 @@ export function NewApplicationPage() {
   const [results, setResults] = useState<Borrower[]>([]);
   const [borrower, setBorrower] = useState<Borrower | null>(null);
   const [productId, setProductId] = useState('');
+  const [detail, setDetail] = useState<Product | null>(null);
   const [amount, setAmount] = useState('');
   const [term, setTerm] = useState('');
   const [purpose, setPurpose] = useState('');
@@ -124,6 +320,10 @@ export function NewApplicationPage() {
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
+      if (!query.trim()) {
+        setResults([]);
+        return;
+      }
       void api<Page<Borrower>>(`/api/borrowers${qs({ q: query, pageSize: 8 })}`)
         .then((result) => setResults(result.data))
         .catch(() => setResults([]));
@@ -131,12 +331,22 @@ export function NewApplicationPage() {
     return () => window.clearTimeout(handle);
   }, [query]);
 
-  const product = products.data?.data.find((item) => String(item.id) === productId);
+  useEffect(() => {
+    if (!productId) {
+      setDetail(null);
+      return;
+    }
+    api<One<Product>>(`/api/products/${productId}`)
+      .then((result) => setDetail(result.data))
+      .catch(() => setDetail(null));
+  }, [productId]);
+
+  const product = detail ?? products.data?.data.find((item) => String(item.id) === productId) ?? null;
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (!borrower || !product) {
-      setError('Choose a borrower and a product.');
+      setError('Choose a borrower and a loan product.');
       return;
     }
     setBusy(true);
@@ -161,57 +371,78 @@ export function NewApplicationPage() {
   }
 
   return (
-    <>
-      <PageHeader eyebrow="Applications" title="New application" lede="Borrower and product stay fixed after this draft is created. The rate is copied from the product." />
-      <Card>
-        <form className="stack" onSubmit={onSubmit}>
-          <Alert>{error}</Alert>
-          {preset.error ? <Alert>{preset.error}</Alert> : null}
-          <Field label="Borrower" hint="Search by name or borrower number.">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search borrowers" />
-          </Field>
-          <div className="pick-list">
-            {borrower ? (
-              <div className="pick on">
-                <strong>{borrower.fullName}</strong>
-                <span className="hint">{borrower.borrowerNumber} · {label(borrower.verificationStatus)}</span>
+    <form className="users-page user-form" onSubmit={onSubmit}>
+      <h1>Add Application</h1>
+      {error ? <Alert>{error}</Alert> : null}
+      {preset.error ? <Alert>{preset.error}</Alert> : null}
+      {borrower && borrower.verificationStatus !== 'verified' ? (
+        <Alert kind="info">This borrower is not verified yet. You can save a draft, and submit it after verification.</Alert>
+      ) : null}
+      <section className="user-card">
+        <h2><i />Application Details</h2>
+        <div className="user-grid">
+          <label>
+            Borrower <b>*</b>
+            <input value={borrower ? borrower.fullName : query} onChange={(event) => { setBorrower(null); setQuery(event.target.value); }} placeholder="Select Borrower" required />
+            {!borrower && results.length > 0 ? (
+              <div className="app-results">
+                {results.map((item) => (
+                  <button type="button" key={item.id} onClick={() => { setBorrower(item); setResults([]); }}>
+                    <strong>{item.fullName}</strong>
+                    <span>{item.borrowerNumber} · {label(item.verificationStatus)}</span>
+                  </button>
+                ))}
               </div>
             ) : null}
-            {results.filter((item) => item.id !== borrower?.id).map((item) => (
-              <button type="button" key={item.id} className="pick" onClick={() => setBorrower(item)}>
-                <strong>{item.fullName}</strong>
-                <span className="hint">{item.borrowerNumber} · {label(item.verificationStatus)}</span>
-              </button>
-            ))}
-          </div>
-          {borrower && borrower.verificationStatus !== 'verified' ? (
-            <Alert kind="info">This borrower is not verified yet. You can save a draft, and submit it after verification.</Alert>
-          ) : null}
-          <Field label="Product">
+          </label>
+          <label>
+            Loan Product <b>*</b>
             <select value={productId} onChange={(event) => setProductId(event.target.value)} required>
-              <option value="">Choose a product</option>
-              {products.data?.data.map((item) => (
-                <option key={item.id} value={item.id}>{item.code} · {item.name}</option>
-              ))}
+              <option value="">Select Loan Product</option>
+              {products.data?.data.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
-          </Field>
-          {product ? (
-            <p className="hint">
-              {product.monthlyInterestRate}% monthly flat · {money(product.minAmount)}–{money(product.maxAmount)} · {product.minTermMonths}–{product.maxTermMonths} months
-            </p>
-          ) : null}
-          <div className="form-grid">
-            <Field label="Requested amount"><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required /></Field>
-            <Field label="Term (months)"><input inputMode="numeric" value={term} onChange={(event) => setTerm(event.target.value)} required /></Field>
-            <Field className="span-2" label="Purpose"><input value={purpose} onChange={(event) => setPurpose(event.target.value)} /></Field>
-          </div>
-          <div className="actions">
-            <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Create draft'}</button>
-            <Link className="btn" to="/applications">Cancel</Link>
-          </div>
-        </form>
-      </Card>
-    </>
+          </label>
+          <label>
+            Requested Amount (MAX {product ? money(product.maxAmount) : '--'}) <b>*</b>
+            <span className="app-affix">
+              <span>₱</span>
+              <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" required />
+              <em>PHP</em>
+            </span>
+          </label>
+          <label>
+            Term (MAX {product ? product.maxTermMonths : '--'}) <b>*</b>
+            <span className="app-affix">
+              <input inputMode="numeric" value={term} onChange={(event) => setTerm(event.target.value)} placeholder="0" required />
+              <em>MONTHS</em>
+            </span>
+          </label>
+          <label className="product-wide">
+            Purpose <b>*</b>
+            <textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} placeholder="Write your Purpose here..." required />
+          </label>
+        </div>
+      </section>
+      <div className="app-split">
+        <section className="user-card">
+          <h2><i />Supporting Requirements</h2>
+          {(product?.requirements ?? []).length === 0 ? <p>Select a loan product to see its requirements.</p> : product?.requirements?.map((item) => (
+            <div className="app-req" key={item.id}>
+              <div>
+                <strong>{item.name}{item.isRequired ? ' *' : ''}</strong>
+                <small>{item.description || 'Required for this loan product.'}</small>
+              </div>
+              <span className="users-pill app-pill is-pending">PENDING</span>
+            </div>
+          ))}
+        </section>
+        <LoanEstimate rate={Number(product?.monthlyInterestRate ?? 0)} amount={amount} term={term} />
+      </div>
+      <div className="user-actions">
+        <Link className="users-outline" to="/applications">Cancel</Link>
+        <button className="users-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save as Draft'}</button>
+      </div>
+    </form>
   );
 }
 
@@ -268,127 +499,119 @@ export function ApplicationRecordPage() {
   const writable = can('applications.write');
   const openForRequirements = ['draft', 'submitted', 'under_review'].includes(application.status);
 
+  const draft = application.status === 'draft' && writable;
+
   return (
-    <>
-      <PageHeader
-        eyebrow={application.applicationNumber}
-        title={application.borrowerName}
-        lede={<><Badge value={application.status} /> <span className="hint">{application.productCode} · {application.productName}</span></>}
-        actions={
-          <>
-            <Link className="btn" to={`/borrowers/${application.borrowerId}`}>Borrower</Link>
-            {application.evaluation || ['submitted', 'under_review', 'approved', 'rejected', 'disbursed'].includes(application.status) ? (
-              <Link className="btn" to={`/applications/${application.id}/evaluation`}>Evaluation</Link>
-            ) : null}
-            {application.evaluation || application.approval ? <Link className="btn" to={`/applications/${application.id}/approval`}>Approval</Link> : null}
-          </>
-        }
-      />
+    <form className="users-page user-form" onSubmit={(event) => {
+      event.preventDefault();
+      if (!draft) return;
+      void act(async () => {
+        await api(`/api/applications/${application.id}`, {
+          method: 'PATCH',
+          body: { requestedAmount: Number(amount), termMonths: Number(term), purpose: blankToNull(purpose) },
+        });
+        setNotice('Draft saved. The rate was refreshed from the product.');
+      });
+    }}>
+      <header className="users-head">
+        <div>
+          <h1>{application.applicationNumber}</h1>
+          <p>{application.borrowerName} · {application.productName}</p>
+        </div>
+        <span className={`users-pill app-pill ${STATUS_CLASS[application.status] ?? ''}`}>{STATUS_TEXT[application.status] ?? label(application.status)}</span>
+      </header>
       <Steps items={stepsFor(application)} />
-      <Alert>{error}</Alert>
-      <Alert kind="ok">{notice}</Alert>
+      {error ? <Alert>{error}</Alert> : null}
+      {notice ? <Alert kind="ok">{notice}</Alert> : null}
       {application.borrowerVerificationStatus !== 'verified' && ['draft', 'submitted'].includes(application.status) ? (
         <Alert kind="info">Borrower verification is {label(application.borrowerVerificationStatus)}. Submit stays blocked until the borrower is verified.</Alert>
       ) : null}
-      <div className="grid-2">
-        <Card title="Terms">
-          {application.status === 'draft' && writable ? (
-            <form className="form-grid" onSubmit={(event) => {
-              event.preventDefault();
-              void act(async () => {
-                await api(`/api/applications/${application.id}`, {
-                  method: 'PATCH',
-                  body: { requestedAmount: Number(amount), termMonths: Number(term), purpose: blankToNull(purpose) },
-                });
-                setNotice('Draft saved. The rate was refreshed from the product.');
-              });
-            }}>
-              <Field label="Amount"><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required /></Field>
-              <Field label="Term (months)"><input inputMode="numeric" value={term} onChange={(event) => setTerm(event.target.value)} required /></Field>
-              <Field className="span-2" label="Purpose"><input value={purpose} onChange={(event) => setPurpose(event.target.value)} /></Field>
-              <div className="span-2"><button className="btn btn-primary" disabled={busy}>Save draft</button></div>
-            </form>
-          ) : (
-            <Facts items={[
-              { label: 'Amount', value: money(application.requestedAmount) },
-              { label: 'Term', value: `${application.termMonths} months` },
-              { label: 'Monthly rate', value: `${application.monthlyInterestRate}%` },
-              { label: 'Purpose', value: application.purpose || '—' },
-              { label: 'Submitted', value: formatWhen(application.submittedAt) },
-              { label: 'Borrower check', value: label(application.borrowerVerificationStatus) },
-            ]} />
-          )}
-          {application.status === 'draft' ? <p className="hint" style={{ marginTop: 10 }}>Rate on file: {application.monthlyInterestRate}% monthly, copied from the product.</p> : null}
-        </Card>
-        <Card title="Next step">
-          <div className="stack">
-            {application.status === 'draft' && writable ? (
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void act(async () => {
-                await api(`/api/applications/${application.id}/submit`, { method: 'POST' });
-                setNotice('Application submitted.');
-              })}>Submit application</button>
-            ) : null}
-            {['draft', 'submitted'].includes(application.status) && writable ? (
-              <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void act(async () => {
-                await api(`/api/applications/${application.id}/withdraw`, { method: 'POST' });
-                setNotice('Application withdrawn.');
-              })}>Withdraw</button>
-            ) : null}
-            {['submitted', 'under_review'].includes(application.status) ? (
-              <Link className="btn btn-primary" to={`/applications/${application.id}/evaluation`}>
-                {can('credit.evaluate') ? 'Record evaluation' : 'View evaluation'}
-              </Link>
-            ) : null}
-            {application.status === 'under_review' ? (
-              <Link className="btn" to={`/applications/${application.id}/approval`}>
-                {can('credit.approve') ? 'Record decision' : 'View decision'}
-              </Link>
-            ) : null}
-            {application.status === 'approved' && !application.agreement && can('agreements.write') ? (
-              <form className="stack" onSubmit={(event) => {
-                event.preventDefault();
-                void act(async () => {
-                  const created = await api<One<{ id: number }>>(`/api/applications/${application.id}/agreement`, {
-                    method: 'POST',
-                    body: { firstDueDate: dueDate },
-                  });
-                  navigate(`/agreements/${created.data.id}`);
-                });
-              }}>
-                <Field label="First due date" hint="The release date cannot be after this date.">
-                  <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required />
-                </Field>
-                <button className="btn btn-primary" disabled={busy}>Create agreement</button>
-              </form>
-            ) : null}
-            {application.agreement ? (
-              <Link className="btn btn-primary" to={`/agreements/${application.agreement.id}`}>
-                Agreement {application.agreement.agreementNumber}
-              </Link>
-            ) : null}
-            {application.approval ? <p>Decision: {label(application.approval.decision)} by {application.approval.approverName}.</p> : null}
-            {application.status === 'rejected' ? <p className="muted">This application is closed.</p> : null}
-            {application.status === 'withdrawn' ? <p className="muted">This application was withdrawn.</p> : null}
-          </div>
-        </Card>
+      <section className="user-card">
+        <h2><i />Application Details</h2>
+        <div className="user-grid">
+          <label>Borrower<input value={application.borrowerName} readOnly /></label>
+          <label>Loan Product<input value={application.productName} readOnly /></label>
+          <label>
+            Requested Amount <b>*</b>
+            <span className="app-affix">
+              <span>₱</span>
+              <input inputMode="decimal" value={amount} readOnly={!draft} onChange={(event) => setAmount(event.target.value)} required />
+              <em>PHP</em>
+            </span>
+          </label>
+          <label>
+            Term <b>*</b>
+            <span className="app-affix">
+              <input inputMode="numeric" value={term} readOnly={!draft} onChange={(event) => setTerm(event.target.value)} required />
+              <em>MONTHS</em>
+            </span>
+          </label>
+          <label className="product-wide">
+            Purpose
+            <textarea value={purpose} readOnly={!draft} onChange={(event) => setPurpose(event.target.value)} />
+          </label>
+        </div>
+      </section>
+      <div className="app-split">
+        <section className="user-card">
+          <h2><i />Supporting Requirements</h2>
+          {(application.requirements ?? []).length === 0 ? <p>No requirements were copied from the product.</p> : application.requirements?.map((requirement) => (
+            <RequirementEditor
+              key={requirement.id}
+              applicationId={application.id}
+              requirement={requirement}
+              editable={writable && openForRequirements}
+              onSaved={() => record.reload()}
+            />
+          ))}
+        </section>
+        <LoanEstimate rate={Number(application.monthlyInterestRate)} amount={amount} term={term} />
       </div>
-      <Card title="Requirements">
-        <p className="hint" style={{ marginBottom: 10 }}>Required items must be submitted or waived before the application can be submitted.</p>
-        {(application.requirements ?? []).length === 0 ? <Empty title="No requirements were copied from the product" /> : (
-          <div className="stack">
-            {application.requirements?.map((requirement) => (
-              <RequirementEditor
-                key={requirement.id}
-                applicationId={application.id}
-                requirement={requirement}
-                editable={writable && openForRequirements}
-                onSaved={() => record.reload()}
-              />
-            ))}
-          </div>
-        )}
-      </Card>
-    </>
+      <div className="user-actions">
+        <Link className="users-outline" to="/applications">Back</Link>
+        {draft ? <button className="users-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save as Draft'}</button> : null}
+        {application.status === 'draft' && writable ? (
+          <button type="button" className="users-primary" disabled={busy} onClick={() => void act(async () => {
+            await api(`/api/applications/${application.id}/submit`, { method: 'POST' });
+            setNotice('Application submitted.');
+          })}>Submit</button>
+        ) : null}
+        {['draft', 'submitted'].includes(application.status) && writable ? (
+          <button type="button" className="users-outline" disabled={busy} onClick={() => void act(async () => {
+            await api(`/api/applications/${application.id}/withdraw`, { method: 'POST' });
+            setNotice('Application withdrawn.');
+          })}>Withdraw</button>
+        ) : null}
+        {['submitted', 'under_review'].includes(application.status) ? (
+          <Link className="users-primary" to={`/applications/${application.id}/evaluation`}>
+            {can('credit.evaluate') ? 'Record evaluation' : 'View evaluation'}
+          </Link>
+        ) : null}
+        {application.status === 'under_review' ? (
+          <Link className="users-outline" to={`/applications/${application.id}/approval`}>
+            {can('credit.approve') ? 'Record decision' : 'View decision'}
+          </Link>
+        ) : null}
+        {application.agreement ? <Link className="users-primary" to={`/agreements/${application.agreement.id}`}>Agreement {application.agreement.agreementNumber}</Link> : null}
+      </div>
+      {application.status === 'approved' && !application.agreement && can('agreements.write') ? (
+        <section className="user-card">
+          <h2><i />Agreement</h2>
+          <label>
+            First due date
+            <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required />
+          </label>
+          <button type="button" className="users-primary" disabled={busy || !dueDate} onClick={() => void act(async () => {
+            const created = await api<One<{ id: number }>>(`/api/applications/${application.id}/agreement`, {
+              method: 'POST',
+              body: { firstDueDate: dueDate },
+            });
+            navigate(`/agreements/${created.data.id}`);
+          })}>Create agreement</button>
+        </section>
+      ) : null}
+      {application.approval ? <p>Decision: {label(application.approval.decision)} by {application.approval.approverName}.</p> : null}
+    </form>
   );
 }
 
@@ -413,14 +636,14 @@ function RequirementEditor({
     setNotes(requirement.notes ?? '');
   }, [requirement]);
 
-  async function save(event: FormEvent) {
-    event.preventDefault();
+  async function save(nextStatus: string) {
+    setStatus(nextStatus);
     setBusy(true);
     setError(null);
     try {
       await api(`/api/applications/${applicationId}/requirements/${requirement.id}`, {
         method: 'PATCH',
-        body: { status, notes: blankToNull(notes) },
+        body: { status: nextStatus, notes: blankToNull(notes) },
       });
       onSaved();
     } catch (err) {
@@ -431,26 +654,20 @@ function RequirementEditor({
   }
 
   return (
-    <form className="check-item" onSubmit={save}>
-      <Alert>{error}</Alert>
-      <header>
-        <strong>{requirement.name}{requirement.isRequired ? '' : ' · optional'}</strong>
-        <Badge value={requirement.status} />
-      </header>
+    <div className="app-req">
+      <div>
+        <strong>{requirement.name}{requirement.isRequired ? ' *' : ''}</strong>
+        <small>{requirement.notes || 'Document copied from the loan product.'}</small>
+        {error ? <Alert>{error}</Alert> : null}
+      </div>
       {editable ? (
-        <div className="form-grid">
-          <Field label="Status">
-            <select value={status} onChange={(event) => setStatus(event.target.value)}>
-              <option value="pending">Pending</option>
-              <option value="submitted">Submitted</option>
-              <option value="waived">Waived</option>
-            </select>
-          </Field>
-          <Field label="Notes"><input value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
-          <div><button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Save requirement'}</button></div>
-        </div>
-      ) : <p className="hint">{requirement.notes || 'No notes.'}</p>}
-    </form>
+        <select value={status} disabled={busy} aria-label={`${requirement.name} status`} onChange={(event) => void save(event.target.value)}>
+          <option value="pending">PENDING</option>
+          <option value="submitted">SUBMITTED</option>
+          <option value="waived">WAIVED</option>
+        </select>
+      ) : <span className="users-pill app-pill is-pending">{requirement.status.toUpperCase()}</span>}
+    </div>
   );
 }
 
